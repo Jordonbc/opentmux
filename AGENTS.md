@@ -197,42 +197,23 @@ async function getData(): Promise<Data> {
 
 ## Release Process
 
-This project uses GitHub Actions for automated releases. **Do NOT run `npm publish` manually.**
+This project uses GitHub Actions branch-based npm release channels. **Do not run `npm publish` manually.** Use branch pushes or workflow dispatches.
 
-**Workflow behavior (from `.github/workflows/publish-npm.yml`):**
-- Trigger: Push of tag `v*`
+**Workflow behavior:**
+- **Stable**: push to `Stable` branch → publish `latest`
+- **Beta**: push to `Beta` branch → publish `beta`
+- **Edge**: push to `Dev` branch → publish `edge`
+- **Nightly**: daily schedule on `Dev` branch → publish `nightly` only when computed version is new
 - Build: `bun install` + `bun run build`
-- Publish: `npm publish --access public` via `NPM_TOKEN` secret
+- Publish: `npm publish --access public --provenance`
 
 ### Steps:
-1. **Make changes, commit with conventional commits:**
-   ```bash
-   git commit -m "feat: add new feature"  # Minor version bump
-   git commit -m "fix: resolve bug"       # Patch version bump
-   git commit -m "feat!: breaking change" # Major version bump
-   ```
-
-2. **Update version in package.json:**
-   - Patch (1.1.x): Bug fixes only
-   - Minor (1.x.0): New features, backward compatible
-   - Major (x.0.0): Breaking changes
-
-3. **Commit, tag, and push:**
-   ```bash
-   git add package.json
-   git commit -m "Bump version to X.Y.Z"
-   git tag vX.Y.Z
-   git push origin main --tags
-   ```
-
-4. **Create GitHub release (optional, for documentation):**
-   ```bash
-   gh release create vX.Y.Z --title "vX.Y.Z" --notes "Release notes..."
-   ```
-
-5. **Verify:**
-   - Check https://github.com/AnganSamadder/opentmux/actions
-   - Verify npm: `npm view opentmux version`
+1. **Make changes and commit normally.**
+2. **For Stable/Beta, bump `package.json` version before merging to that branch.**
+3. **Push to the target branch and let GitHub Actions publish the matching dist-tag.**
+4. **Verify:**
+   - Check GitHub Actions
+   - Verify npm dist-tag: `npm view @jordonbc/opentmux dist-tags`
 
 ## Local Development
 

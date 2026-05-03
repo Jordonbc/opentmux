@@ -87,10 +87,11 @@ node dist/scripts/install.js
 ## Publishing
 
 Before publishing:
-1. Update version in `package.json`
+1. Update version in `package.json` for Stable/Beta releases
 2. Test locally with `./scripts/dev-setup.sh`
 3. Commit changes
-4. Run `npm publish` (the `prepublishOnly` script will build automatically)
+4. Push to the matching branch (`Stable`, `Beta`, or `Dev`)
+5. Let GitHub Actions publish the matching npm dist-tag
 
 ## Troubleshooting
 
