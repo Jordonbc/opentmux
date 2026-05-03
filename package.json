@@ -1,6 +1,6 @@
 {
   "name": "opentmux",
-  "version": "1.5.7",
+  "version": "1.0.0",
   "description": "OpenCode tmux integration: automatically opens subagent panes and renders real-time agent execution with smart layouts",
   "type": "module",
   "main": "dist/index.js",
@@ -24,16 +24,17 @@
     "subagent",
     "visualization"
   ],
-  "author": "Angan Samadder",
+  "author": "Jordon Brooks",
+  "contributors": ["Angan Samadder"] ,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AnganSamadder/opentmux.git"
+    "url": "git+https://github.com/Jordonbc/opentmux.git"
   },
   "bugs": {
-    "url": "https://github.com/AnganSamadder/opentmux/issues"
+    "url": "https://github.com/Jordonbc/opentmux/issues"
   },
-  "homepage": "https://github.com/AnganSamadder/opentmux#readme",
+  "homepage": "https://github.com/Jordonbc/opentmux#readme",
   "publishConfig": {
     "access": "public"
   },
