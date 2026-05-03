@@ -19,7 +19,7 @@ An [OpenCode](https://opencode.ai) plugin that provides **smart tmux integration
 Paste this into any LLM agent (OpenCode, Claude Code, Cursor, etc.):
 
 ```text
-Install the opentmux plugin by following: https://raw.githubusercontent.com/Jordonbc/opentmux/main/README.md
+Install the @jordonbc/opentmux plugin by following: https://raw.githubusercontent.com/Jordonbc/opentmux/main/README.md
 ```
 
 <details>
@@ -33,20 +33,10 @@ npm install -g @jordonbc/opentmux
     ```
     *Note: This installer automatically configures the user's shell (Bash/Zsh/Fish/PowerShell) to use the smart wrapper.*
 
-2.  **Configure OpenCode:**
-    Add `"opentmux"` to the `plugin` array in the user's config file (usually `~/.config/opencode/opencode.json`).
-
-    ```json
-    {
-      "plugin": [
-        "opentmux"
-      ]
-    }
-    ```
-
-3.  **Verify & Finalize:**
+2.  **Verify & Finalize:**
     *   Check if `tmux` is installed on the system. If not, advise the user to install it (e.g., `brew install tmux`, `sudo apt install tmux`, or `winget install tmux`).
-    *   Tell the user: **"Installation complete! Please restart your terminal and run `opencode` to see the tmux integration in action."**
+    *   Tell the user: **"Installation complete! Please restart your terminal and run `opencode` once. The wrapper will set up the OpenCode integration automatically."**
+    *   If the user wants a local checkout instead of npm, point them to [docs/installation.md](docs/installation.md).
 
 </details>
 
@@ -58,18 +48,8 @@ npm install -g @jordonbc/opentmux
     ```
     *The installer automatically configures your shell to use the smart wrapper.*
 
-2.  **Enable the Plugin:**
-    Add `"opentmux"` to your `~/.config/opencode/opencode.json`:
-    ```json
-    {
-      "plugin": [
-        "opentmux"
-      ]
-    }
-    ```
-
-3.  **Run OpenCode:**
-    Restart your terminal and type `opencode`. The plugin handles the rest!
+2.  **Run OpenCode:**
+    Restart your terminal and type `opencode` once. The wrapper handles the OpenCode integration automatically.
 
 ## 🛠️ Development
 
