@@ -364,8 +364,10 @@ async function attemptSpawnPane(
   config: TmuxConfig,
   tmux: string,
   serverUrl: string,
+  targetPaneId?: string | null,
 ): Promise<SpawnPaneResult> {
   const opencodeCmd = `opencode attach ${serverUrl} --session ${sessionId}`;
+  const paneTarget = targetPaneId ?? null;
 
   const args = [
     'split-window',
@@ -374,10 +376,11 @@ async function attemptSpawnPane(
     '-P',
     '-F',
     '#{pane_id}',
+    ...(paneTarget ? ['-t', paneTarget] : []),
     opencodeCmd,
   ];
 
-  log('[tmux] attemptSpawnPane: executing', { tmux, args, opencodeCmd });
+  log('[tmux] attemptSpawnPane: executing', { tmux, args, opencodeCmd, paneTarget });
 
   const result = await spawnAsyncFn([tmux, ...args]);
   const paneId = result.stdout.trim();
@@ -408,6 +411,7 @@ export async function spawnTmuxPane(
   description: string,
   config: TmuxConfig,
   serverUrl: string,
+  targetPaneId?: string | null,
 ): Promise<SpawnPaneResult> {
   log('[tmux] spawnTmuxPane called', {
     sessionId,
@@ -450,7 +454,14 @@ export async function spawnTmuxPane(
 
   while (attempt <= maxRetries) {
     try {
-      lastResult = await attemptSpawnPane(sessionId, description, config, tmux, serverUrl);
+      lastResult = await attemptSpawnPane(
+        sessionId,
+        description,
+        config,
+        tmux,
+        serverUrl,
+        targetPaneId,
+      );
 
       if (lastResult.success) {
         return lastResult;

@@ -45,6 +45,7 @@ function createTestConfig(overrides: Partial<TmuxConfig> = {}): TmuxConfig {
     enabled: true,
     layout: 'main-vertical',
     main_pane_size: 60,
+    auto_close: true,
     spawn_delay_ms: 300,
     max_retry_attempts: 2,
     layout_debounce_ms: 150,
@@ -273,4 +274,41 @@ test('spawnTmuxPane returns early when not inside tmux', async () => {
 
   expect(result.success).toBe(false);
   expect(mockData.calls.length).toBe(0);
+});
+
+test('spawnTmuxPane targets the captured pane when provided', async () => {
+  mockData.results.push(
+    { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },
+    { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' },
+    { exitCode: 0, stdout: '%5\n', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+  );
+
+  setSpawnAsyncFn(mockData.fn);
+
+  const mockFetch = mock(async () => new Response('ok', { status: 200 }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+  try {
+    const config = createTestConfig();
+    const result = await spawnTmuxPane(
+      'session-8',
+      'Target Task',
+      config,
+      'http://localhost:4096',
+      '%42',
+    );
+
+    expect(result.success).toBe(true);
+
+    const splitWindowCall = mockData.calls.find((c) => c.command.includes('split-window'));
+    expect(splitWindowCall?.command).toContain('-t');
+    expect(splitWindowCall?.command).toContain('%42');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
