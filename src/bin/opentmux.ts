@@ -4,8 +4,8 @@ import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:net";
 import { env, platform, exit, argv } from "node:process";
 import { existsSync, appendFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { join, dirname, basename } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { ZombieReaper } from "../zombie-reaper";
 import { loadConfig } from "../utils/config-loader";
@@ -23,8 +23,8 @@ import {
 const config = loadConfig();
 const OPENCODE_PORT_START =
   config.port || parseInt(env.OPENCODE_PORT || "4096", 10);
-const OPENCODE_PORT_MAX = OPENCODE_PORT_START + (config.max_ports || 10);
-const LOG_FILE = "/tmp/opentmux.log";
+const OPENCODE_PORT_MAX = OPENCODE_PORT_START + (config.max_ports ?? 10) - 1;
+const LOG_FILE = join(tmpdir(), "opentmux.log");
 const HEALTH_TIMEOUT_MS = 1000;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -66,7 +66,10 @@ function findOpencodeBin(): string | null {
 
     for (const bin of output) {
       const normalizedBin = bin.trim();
-      if (normalizedBin.includes("opentmux") || normalizedBin === currentScript)
+      if (
+        normalizedBin === currentScript ||
+        basename(normalizedBin).startsWith("opentmux")
+      )
         continue;
       if (normalizedBin) return normalizedBin;
     }

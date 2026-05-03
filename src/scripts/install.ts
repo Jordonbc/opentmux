@@ -165,5 +165,5 @@ try {
   console.error('');
   console.error('⚠️  Failed to auto-configure shell alias:', (error as Error).message);
   console.error('');
-  process.exit(0);
+  process.exit(1);
 }

@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { platform } from 'node:os';
 
 /**
@@ -113,12 +113,15 @@ export async function waitForProcessExit(pid: number, timeoutMs: number = 2000):
 export function findProcessIds(pattern: string): number[] {
   if (platform() === 'win32') return [];
   
-  // Use pgrep -f to match full command line
-  // We sanitize the pattern to avoid command injection, though pgrep treats it as regex
-  const output = safeExec(`pgrep -f "${pattern}"`);
-  if (!output) return [];
+  // Use pgrep -f without shell interpolation to avoid command injection.
+  const result = spawnSync('pgrep', ['-f', pattern], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
 
-  return output
+  if (result.status !== 0 || !result.stdout) return [];
+
+  return result.stdout
     .split('\n')
     .map((value) => Number.parseInt(value.trim(), 10))
     .filter((value) => Number.isFinite(value));

@@ -192,13 +192,14 @@ test('reapAll (manual CLI) kills zombies immediately without grace period', asyn
     return new Response(JSON.stringify({ data: {} }), { status: 200 });
   });
   
-  // Spy on process.kill since reapAll uses forceKill (direct process.kill) instead of safeKill
-  const killSpy = spyOn(process, 'kill');
+  const killSpy = spyOn(processUtils, 'safeKill');
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(false);
 
   await ZombieReaper.reapAll();
 
   // Should kill 800 (zombie)
   expect(killSpy).toHaveBeenCalledWith(800, 'SIGTERM');
+  expect(killSpy).toHaveBeenCalledWith(800, 'SIGKILL');
   
   // Should NOT kill 801 (active)
   expect(killSpy).not.toHaveBeenCalledWith(801, 'SIGTERM');
@@ -219,4 +220,14 @@ test('reapServers ignores the main opencode process', async () => {
 
   expect(safeKillSpy).toHaveBeenCalledWith(901, 'SIGTERM');
   expect(safeKillSpy).not.toHaveBeenCalledWith(900, 'SIGTERM');
+});
+
+test('reapServers skips unrelated node processes', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([950]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('node server.js');
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await ZombieReaper.reapServers(4096, 4096);
+
+  expect(safeKillSpy).not.toHaveBeenCalled();
 });

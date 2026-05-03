@@ -63,8 +63,8 @@ export class ZombieReaper {
     
     // 1. Reap inactive servers first
     // Default to 10 ports if not specified
-    const maxPorts = options.maxPorts || 10;
-    const endPort = OPENCODE_PORT_START + maxPorts;
+    const maxPorts = options.maxPorts ?? 10;
+    const endPort = OPENCODE_PORT_START + Math.max(0, maxPorts - 1);
     
     const reapedServers = await ZombieReaper.reapServers(OPENCODE_PORT_START, endPort);
     if (reapedServers > 0) {
@@ -137,11 +137,17 @@ export class ZombieReaper {
   }
 
   private async forceKill(pid: number): Promise<void> {
-     // Direct kill for CLI
      try {
-       process.kill(pid, 'SIGTERM');
-       // await waitForProcessExit... but for CLI we might just fire and forget or wait briefly
-     } catch {}
+       safeKill(pid, 'SIGTERM');
+       const exited = await waitForProcessExit(pid, 2000);
+
+       if (!exited) {
+         safeKill(pid, 'SIGKILL');
+         await waitForProcessExit(pid, 1000);
+       }
+     } catch {
+       // Best-effort CLI reap
+     }
   }
 
   start(): void {
@@ -436,9 +442,7 @@ export class ZombieReaper {
       for (const pid of pids) {
         // Verify it's an opencode process (safety check via command name)
         const cmd = getProcessCommand(pid) || '';
-        // We look for 'opencode' or 'node' (since it might be running via node)
-        // If it's some other random service, we shouldn't touch it.
-        const isSuspicious = cmd.includes('opencode attach') || cmd.includes('node') || cmd.includes('bun');
+        const isSuspicious = cmd.includes('opencode attach');
         if (!isSuspicious) continue;
 
         // Verify via HTTP

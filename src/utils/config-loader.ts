@@ -1,43 +1,50 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { PluginConfigSchema, type PluginConfig } from '../config';
 
-function log(message: string, data?: unknown) {
-  // Simple logger for config loading
-  // In real app, might want to use the unified logger
+function readConfigFile(configPath: string): PluginConfig | null {
+  try {
+    if (!fs.existsSync(configPath)) {
+      return null;
+    }
+
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    const result = PluginConfigSchema.safeParse(parsed);
+
+    if (result.success) {
+      return result.data;
+    }
+
+    console.error(
+      `[opentmux] Invalid config at ${configPath}: ${result.error.message}`,
+    );
+  } catch (error) {
+    console.error(`[opentmux] Failed to load config at ${configPath}:`, error);
+  }
+
+  return null;
 }
 
 export function loadConfig(directory?: string): PluginConfig {
   const configPaths: string[] = [];
 
   if (directory) {
-    configPaths.push(
-      path.join(directory, 'opentmux.json'),
-      path.join(directory, 'opencode-agent-tmux.json')
-    );
+    configPaths.push(path.join(directory, 'opentmux.json'));
+    configPaths.push(path.join(directory, 'opencode-agent-tmux.json'));
   }
 
+  const homeDirectory = process.env.HOME ?? os.homedir();
+  configPaths.push(path.join(homeDirectory, '.config', 'opencode', 'opentmux.json'));
   configPaths.push(
-    path.join(
-      process.env.HOME ?? '',
-      '.config',
-      'opencode',
-      'opentmux.json',
-    )
+    path.join(homeDirectory, '.config', 'opencode', 'opencode-agent-tmux.json'),
   );
 
   for (const configPath of configPaths) {
-    try {
-      if (fs.existsSync(configPath)) {
-        const content = fs.readFileSync(configPath, 'utf-8');
-        const parsed = JSON.parse(content);
-        const result = PluginConfigSchema.safeParse(parsed);
-        if (result.success) {
-          return result.data;
-        }
-      }
-    } catch (err) {
-      // ignore
+    const loaded = readConfigFile(configPath);
+    if (loaded) {
+      return loaded;
     }
   }
 
