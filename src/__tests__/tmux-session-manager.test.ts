@@ -3,6 +3,7 @@ import { TmuxSessionManager } from '../tmux-session-manager';
 import type { PluginInput } from '../types';
 import type { TmuxConfig } from '../config';
 import * as utils from '../utils';
+import * as tmuxUtils from '../utils/tmux';
 import { setSpawnAsyncFn, resetSpawnAsyncFn, resetTmuxPathCache } from '../utils/tmux';
 
 // Helper to create controlled promises for test synchronization
@@ -274,30 +275,47 @@ test('TmuxSessionManager uses config spawn_delay_ms and max_retry_attempts', asy
   expect(spawnCalls.length).toBe(1);
 });
 
-test('TmuxSessionManager passes captured target pane to spawnTmuxPane', async () => {
+test('TmuxSessionManager resolves target pane for each spawn', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
-  const spawnSpy = spyOn(utils, 'spawnTmuxPane').mockImplementation(async () => ({
-    success: true,
-    paneId: '%1',
-  }));
+  const spawnTargets: Array<string | null | undefined> = [];
+
+  const getCurrentPaneIdSpy = spyOn(tmuxUtils, 'getCurrentPaneId')
+    .mockResolvedValueOnce('%first-spawn')
+    .mockResolvedValueOnce(null);
+
+  const spawnSpy = spyOn(utils, 'spawnTmuxPane').mockImplementation(async (
+    _sessionId: string,
+    _title: string,
+    _config: TmuxConfig,
+    _serverUrl: string,
+    targetPaneId?: string | null,
+  ) => {
+    spawnTargets.push(targetPaneId);
+    return {
+      success: true,
+      paneId: `%${spawnTargets.length}`,
+    };
+  });
 
   const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
 
-  const event = {
+  const firstEvent = {
     type: 'session.created',
-    properties: { info: { id: 'target-test', parentID: 'parent', title: 'Target' } },
+    properties: { info: { id: 'target-test-1', parentID: 'parent', title: 'Target 1' } },
   };
 
-  await manager.onSessionCreated(event);
+  const secondEvent = {
+    type: 'session.created',
+    properties: { info: { id: 'target-test-2', parentID: 'parent', title: 'Target 2' } },
+  };
 
-  expect(spawnSpy).toHaveBeenCalledWith(
-    'target-test',
-    'Target',
-    expect.any(Object),
-    'http://localhost:4096',
-    '%77',
-  );
+  await manager.onSessionCreated(firstEvent);
+  await manager.onSessionCreated(secondEvent);
+
+  expect(getCurrentPaneIdSpy).toHaveBeenCalledTimes(2);
+  expect(spawnSpy).toHaveBeenCalledTimes(2);
+  expect(spawnTargets).toEqual(['%first-spawn', null]);
 });
 
 test('TmuxSessionManager respects auto_close=false', async () => {

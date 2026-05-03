@@ -36,8 +36,6 @@ export class TmuxSessionManager {
   private pollInterval?: ReturnType<typeof setInterval>;
   private enabled = false;
   private shuttingDown = false;
-  private targetPaneId: string | null = null;
-  private targetPaneIdPromise: Promise<void> | null = null;
   private spawnQueue: SpawnQueue;
   private layoutDebounceTimer?: ReturnType<typeof setTimeout>;
   private reaper: ZombieReaper;
@@ -49,13 +47,13 @@ export class TmuxSessionManager {
     this.enabled = tmuxConfig.enabled && isInsideTmux();
 
     this.spawnQueue = new SpawnQueue({
-      spawnFn: (request: SpawnRequest) =>
+      spawnFn: async (request: SpawnRequest) =>
         spawnTmuxPane(
           request.sessionId,
           request.title,
           this.tmuxConfig,
           this.serverUrl,
-          this.targetPaneId,
+          await this.resolveTargetPaneId(),
         ),
       spawnDelayMs: tmuxConfig.spawn_delay_ms,
       maxRetries: 0,
@@ -83,7 +81,6 @@ export class TmuxSessionManager {
     });
 
     if (this.enabled) {
-      this.targetPaneIdPromise = this.captureTargetPaneId();
       this.registerShutdownHandlers();
       
       // Start reaper
@@ -97,8 +94,6 @@ export class TmuxSessionManager {
   async onSessionCreated(event: SessionCreatedEvent): Promise<void> {
     if (!this.enabled) return;
     if (event.type !== 'session.created') return;
-
-    await this.ensureTargetPaneId();
 
     const info = event.properties?.info;
     if (!info?.id || !info?.parentID) {
@@ -282,34 +277,23 @@ export class TmuxSessionManager {
     }
   }
 
-  private async captureTargetPaneId(): Promise<void> {
+  private async resolveTargetPaneId(): Promise<string | null> {
     try {
       const tmux = await getTmuxPath();
       if (!tmux) {
-        this.targetPaneId = null;
-        return;
+        return null;
       }
 
-      this.targetPaneId = await getCurrentPaneId(tmux);
+      const targetPaneId = await getCurrentPaneId(tmux);
       log('[tmux-session-manager] captured target pane id', {
-        targetPaneId: this.targetPaneId,
+        targetPaneId,
       });
+      return targetPaneId;
     } catch (err) {
       log('[tmux-session-manager] failed to capture target pane id', {
         error: String(err),
       });
-      this.targetPaneId = null;
-    }
-  }
-
-  private async ensureTargetPaneId(): Promise<void> {
-    if (this.targetPaneIdPromise) {
-      await this.targetPaneIdPromise;
-      return;
-    }
-
-    if (!this.targetPaneId) {
-      await this.captureTargetPaneId();
+      return null;
     }
   }
 
