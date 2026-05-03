@@ -195,7 +195,7 @@ async function applyLayout(
   }
 }
 
-async function getCurrentPaneId(tmux: string): Promise<string | null> {
+export async function getCurrentPaneId(tmux: string): Promise<string | null> {
   const result = await spawnAsyncFn([tmux, 'display-message', '-p', '#{pane_id}']);
   const paneId = result.stdout.trim();
   return paneId ? paneId : null;
@@ -505,7 +505,7 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
         const children = getProcessChildren(shellPid);
         for (const childPid of children) {
           const command = getProcessCommand(childPid);
-          if (command && command.includes('opencode')) {
+          if (command && command.includes('opencode attach')) {
             log('[tmux] closeTmuxPane: killing child attach process', { childPid, command });
             
             safeKill(childPid, 'SIGTERM');

@@ -119,3 +119,21 @@ test('closeTmuxPane handles case where no attach process found', async () => {
 
   expect(safeKillSpy).not.toHaveBeenCalled();
 });
+
+test('closeTmuxPane does not kill main opencode process', async () => {
+  mockSpawnData.results.push(
+    { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },
+    { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' },
+    { exitCode: 0, stdout: '12345\n', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+  );
+
+  spyOn(processUtils, 'getProcessChildren').mockReturnValue([9999]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('opencode --port 4096');
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await closeTmuxPane('%1');
+
+  expect(safeKillSpy).not.toHaveBeenCalled();
+});
