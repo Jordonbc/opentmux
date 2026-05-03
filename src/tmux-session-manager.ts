@@ -7,6 +7,7 @@ import {
 } from './config';
 import { SpawnQueue, type SpawnRequest } from './spawn-queue';
 import { closeTmuxPane, isInsideTmux, log, spawnTmuxPane, applyTmuxLayout } from './utils';
+import { getCurrentPaneId, getTmuxPath } from './utils/tmux';
 import { ZombieReaper } from './zombie-reaper';
 
 type OpencodeClient = PluginInput['client'];
@@ -35,6 +36,8 @@ export class TmuxSessionManager {
   private pollInterval?: ReturnType<typeof setInterval>;
   private enabled = false;
   private shuttingDown = false;
+  private targetPaneId: string | null = null;
+  private targetPaneIdPromise: Promise<void> | null = null;
   private spawnQueue: SpawnQueue;
   private layoutDebounceTimer?: ReturnType<typeof setTimeout>;
   private reaper: ZombieReaper;
@@ -47,7 +50,13 @@ export class TmuxSessionManager {
 
     this.spawnQueue = new SpawnQueue({
       spawnFn: (request: SpawnRequest) =>
-        spawnTmuxPane(request.sessionId, request.title, this.tmuxConfig, this.serverUrl),
+        spawnTmuxPane(
+          request.sessionId,
+          request.title,
+          this.tmuxConfig,
+          this.serverUrl,
+          this.targetPaneId,
+        ),
       spawnDelayMs: tmuxConfig.spawn_delay_ms,
       maxRetries: 0,
       onQueueUpdate: (pendingCount: number) => {
@@ -74,6 +83,7 @@ export class TmuxSessionManager {
     });
 
     if (this.enabled) {
+      this.targetPaneIdPromise = this.captureTargetPaneId();
       this.registerShutdownHandlers();
       
       // Start reaper
@@ -87,6 +97,8 @@ export class TmuxSessionManager {
   async onSessionCreated(event: SessionCreatedEvent): Promise<void> {
     if (!this.enabled) return;
     if (event.type !== 'session.created') return;
+
+    await this.ensureTargetPaneId();
 
     const info = event.properties?.info;
     if (!info?.id || !info?.parentID) {
@@ -208,6 +220,10 @@ export class TmuxSessionManager {
 
         const isTimedOut = now - tracked.createdAt > SESSION_TIMEOUT_MS;
 
+        if (!this.tmuxConfig.auto_close) {
+          continue;
+        }
+
         if (isIdle) {
           sessionsToClose.push({ id: sessionId, reason: 'idle' });
         } else if (missingTooLong) {
@@ -263,6 +279,37 @@ export class TmuxSessionManager {
       return false;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async captureTargetPaneId(): Promise<void> {
+    try {
+      const tmux = await getTmuxPath();
+      if (!tmux) {
+        this.targetPaneId = null;
+        return;
+      }
+
+      this.targetPaneId = await getCurrentPaneId(tmux);
+      log('[tmux-session-manager] captured target pane id', {
+        targetPaneId: this.targetPaneId,
+      });
+    } catch (err) {
+      log('[tmux-session-manager] failed to capture target pane id', {
+        error: String(err),
+      });
+      this.targetPaneId = null;
+    }
+  }
+
+  private async ensureTargetPaneId(): Promise<void> {
+    if (this.targetPaneIdPromise) {
+      await this.targetPaneIdPromise;
+      return;
+    }
+
+    if (!this.targetPaneId) {
+      await this.captureTargetPaneId();
     }
   }
 

@@ -3,6 +3,7 @@ import { TmuxSessionManager } from '../tmux-session-manager';
 import type { PluginInput } from '../types';
 import type { TmuxConfig } from '../config';
 import * as utils from '../utils';
+import { setSpawnAsyncFn, resetSpawnAsyncFn, resetTmuxPathCache } from '../utils/tmux';
 
 // Helper to create controlled promises for test synchronization
 function createControlledPromise<T>() {
@@ -52,6 +53,7 @@ function createTmuxConfig(overrides?: Partial<TmuxConfig>): TmuxConfig {
     enabled: true,
     layout: 'main-vertical',
     main_pane_size: 60,
+    auto_close: true,
     spawn_delay_ms: 0,
     max_retry_attempts: 2,
     layout_debounce_ms: 150,
@@ -72,6 +74,19 @@ beforeEach(() => {
   spawnCalls = [];
   spawnControllers.clear();
   layoutCallCount = 0;
+  resetTmuxPathCache();
+
+  setSpawnAsyncFn(async (command: string[]) => {
+    if (command.includes('display-message')) {
+      return { exitCode: 0, stdout: '%77\n', stderr: '' };
+    }
+
+    if (command.includes('-V')) {
+      return { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' };
+    }
+
+    return { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' };
+  });
 
   // Setup spies on utils
   spyOn(utils, 'log').mockImplementation(() => {});
@@ -93,6 +108,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSpawnAsyncFn();
   mock.restore();
 });
 
@@ -256,6 +272,53 @@ test('TmuxSessionManager uses config spawn_delay_ms and max_retry_attempts', asy
   await promise;
 
   expect(spawnCalls.length).toBe(1);
+});
+
+test('TmuxSessionManager passes captured target pane to spawnTmuxPane', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const spawnSpy = spyOn(utils, 'spawnTmuxPane').mockImplementation(async () => ({
+    success: true,
+    paneId: '%1',
+  }));
+
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'target-test', parentID: 'parent', title: 'Target' } },
+  };
+
+  await manager.onSessionCreated(event);
+
+  expect(spawnSpy).toHaveBeenCalledWith(
+    'target-test',
+    'Target',
+    expect.any(Object),
+    'http://localhost:4096',
+    '%77',
+  );
+});
+
+test('TmuxSessionManager respects auto_close=false', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ auto_close: false });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'noclose-test', parentID: 'parent', title: 'No Close' } },
+  };
+
+  const promise = manager.onSessionCreated(event);
+
+  await waitFor(() => spawnControllers.has('noclose-test'));
+  spawnControllers.get('noclose-test')?.resolve({ success: true, paneId: '%9' });
+  await promise;
+
+  await new Promise((r) => setTimeout(r, 2100));
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
 });
 
 test('TmuxSessionManager applies layout once after queue drains (deferred layout)', async () => {
