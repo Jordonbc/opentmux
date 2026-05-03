@@ -1,7 +1,7 @@
 # OpenTmux
 
-[![npm version](https://img.shields.io/npm/v/opentmux.svg)](https://www.npmjs.com/package/opentmux)
-[![npm downloads](https://img.shields.io/npm/dt/opentmux)](https://www.npmjs.com/package/opentmux)
+[![npm version](https://img.shields.io/npm/v/@jordonbc/opentmux.svg)](https://www.npmjs.com/package/@jordonbc/opentmux)
+[![npm downloads](https://img.shields.io/npm/dt/@jordonbc/opentmux)](https://www.npmjs.com/package/@jordonbc/opentmux)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An [OpenCode](https://opencode.ai) plugin that provides **smart tmux integration** for viewing agent execution in real-time. Automatically spawns panes, streams output, and manages your terminal workspace.
@@ -9,7 +9,7 @@ An [OpenCode](https://opencode.ai) plugin that provides **smart tmux integration
 - **Agent-Agnostic**: Works with oh-my-opencode, omoc-slim, or vanilla OpenCode.
 - **Cross-Platform**: Full support for **macOS**, **Linux**, and **Windows** (via PowerShell or WSL).
 
-![Opencode Agent Tmux Demo](https://raw.githubusercontent.com/angansamadder/opentmux/main/assets/demo.png)
+![Opencode Agent Tmux Demo](https://raw.githubusercontent.com/Jordonbc/opentmux/main/assets/demo.png)
 *Note: The demo shows the "sisyphus" agent from [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode), but this plugin supports ALL OpenCode subagents.*
 
 ## Installation
@@ -19,7 +19,7 @@ An [OpenCode](https://opencode.ai) plugin that provides **smart tmux integration
 Paste this into any LLM agent (OpenCode, Claude Code, Cursor, etc.):
 
 ```text
-Install the opentmux plugin by following: https://raw.githubusercontent.com/AnganSamadder/opentmux/main/README.md
+Install the opentmux plugin by following: https://raw.githubusercontent.com/Jordonbc/opentmux/main/README.md
 ```
 
 <details>
@@ -29,7 +29,7 @@ To install this plugin, please perform the following steps for the user:
 
 1.  **Install the NPM package globally:**
     ```bash
-    npm install -g opentmux
+npm install -g @jordonbc/opentmux
     ```
     *Note: This installer automatically configures the user's shell (Bash/Zsh/Fish/PowerShell) to use the smart wrapper.*
 
@@ -54,7 +54,7 @@ To install this plugin, please perform the following steps for the user:
 
 1.  **Install via NPM:**
     ```bash
-    npm install -g opentmux
+npm install -g @jordonbc/opentmux
     ```
     *The installer automatically configures your shell to use the smart wrapper.*
 
