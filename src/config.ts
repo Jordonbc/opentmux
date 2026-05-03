@@ -14,6 +14,7 @@ export const TmuxConfigSchema = z.object({
   enabled: z.boolean().default(true),
   layout: TmuxLayoutSchema.default('main-vertical'),
   main_pane_size: z.number().min(20).max(80).default(60),
+  auto_close: z.boolean().default(true),
   spawn_delay_ms: z.number().min(50).max(2000).default(300),
   max_retry_attempts: z.number().min(0).max(5).default(2),
   layout_debounce_ms: z.number().min(50).max(1000).default(150),

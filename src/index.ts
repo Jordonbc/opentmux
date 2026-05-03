@@ -32,6 +32,7 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
     enabled: config.enabled,
     layout: config.layout,
     main_pane_size: config.main_pane_size,
+    auto_close: config.auto_close,
     spawn_delay_ms: config.spawn_delay_ms,
     max_retry_attempts: config.max_retry_attempts,
     layout_debounce_ms: config.layout_debounce_ms,
