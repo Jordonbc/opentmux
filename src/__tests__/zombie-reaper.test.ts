@@ -203,3 +203,20 @@ test('reapAll (manual CLI) kills zombies immediately without grace period', asyn
   // Should NOT kill 801 (active)
   expect(killSpy).not.toHaveBeenCalledWith(801, 'SIGTERM');
 });
+
+test('reapServers ignores the main opencode process', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([900, 901]);
+  spyOn(processUtils, 'getProcessCommand').mockImplementation((pid) => {
+    if (pid === 900) return 'opencode --port 4096';
+    if (pid === 901) return 'opencode attach http://localhost:4096 --session ses_attach';
+    return null;
+  });
+
+  mockFetch.mockImplementation(async () => new Response(JSON.stringify({ data: {} }), { status: 200 }));
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await ZombieReaper.reapServers(4096, 4096);
+
+  expect(safeKillSpy).toHaveBeenCalledWith(901, 'SIGTERM');
+  expect(safeKillSpy).not.toHaveBeenCalledWith(900, 'SIGTERM');
+});

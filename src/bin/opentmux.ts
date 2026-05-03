@@ -274,7 +274,7 @@ async function tryReclaimPort(
       command ?? "unknown",
     );
 
-    if (command && command.includes("opencode")) {
+    if (command && command.includes("opencode attach")) {
       if (inTmux) {
         log(
           "Port owned by tmux process, skipping:",
@@ -492,7 +492,7 @@ async function main() {
           const cmd = getProcessCommand(pid);
           if (
             cmd &&
-            (cmd.includes("opencode") ||
+            (cmd.includes("opencode attach") ||
               cmd.includes("node") ||
               cmd.includes("bun"))
           ) {

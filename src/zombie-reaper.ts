@@ -438,7 +438,7 @@ export class ZombieReaper {
         const cmd = getProcessCommand(pid) || '';
         // We look for 'opencode' or 'node' (since it might be running via node)
         // If it's some other random service, we shouldn't touch it.
-        const isSuspicious = cmd.includes('opencode') || cmd.includes('node') || cmd.includes('bun');
+        const isSuspicious = cmd.includes('opencode attach') || cmd.includes('node') || cmd.includes('bun');
         if (!isSuspicious) continue;
 
         // Verify via HTTP
