@@ -276,6 +276,34 @@ test('spawnTmuxPane returns early when not inside tmux', async () => {
   expect(mockData.calls.length).toBe(0);
 });
 
+test('spawnTmuxPane still attempts to spawn when server health check fails', async () => {
+  mockData.results.push(
+    { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },
+    { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' },
+    { exitCode: 0, stdout: '%11\n', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+  );
+
+  setSpawnAsyncFn(mockData.fn);
+
+  const mockFetch = mock(async () => new Response('unavailable', { status: 503 }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+  try {
+    const config = createTestConfig();
+    const result = await spawnTmuxPane('session-health', 'Health Gate', config, 'http://localhost:4096');
+
+    expect(result.success).toBe(true);
+    expect(result.paneId).toBe('%11');
+
+    const splitWindowCall = mockData.calls.find((c) => c.command.includes('split-window'));
+    expect(splitWindowCall).toBeDefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('spawnTmuxPane targets the captured pane when provided', async () => {
   mockData.results.push(
     { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },

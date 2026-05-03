@@ -171,6 +171,68 @@ test('TmuxSessionManager tracks sessions after successful spawn', async () => {
   expect(spawnCalls.filter(c => c.sessionId === 'track-test').length).toBe(1);
 });
 
+test('TmuxSessionManager accepts sessionID with parentId alias', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: {
+      sessionID: 'alias-test',
+      info: { parentId: 'parent', title: 'Alias Parent' },
+    },
+  };
+
+  const promise = manager.onSessionCreated(event);
+
+  await waitFor(() => spawnControllers.has('alias-test'));
+  spawnControllers.get('alias-test')?.resolve({ success: true, paneId: '%43' });
+
+  await promise;
+
+  expect(spawnCalls.length).toBe(1);
+  expect(spawnCalls[0]).toEqual({ sessionId: 'alias-test', title: 'Alias Parent' });
+});
+
+test('TmuxSessionManager accepts session payload container', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: {
+      session: { id: 'session-container-test', parentID: 'parent', title: 'Session Payload' },
+    },
+  };
+
+  const promise = manager.onSessionCreated(event);
+
+  await waitFor(() => spawnControllers.has('session-container-test'));
+  spawnControllers.get('session-container-test')?.resolve({ success: true, paneId: '%44' });
+
+  await promise;
+
+  expect(spawnCalls.length).toBe(1);
+  expect(spawnCalls[0]).toEqual({ sessionId: 'session-container-test', title: 'Session Payload' });
+});
+
+test('TmuxSessionManager ignores root session without parent id', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { sessionID: 'root-session', info: { id: 'root-session', title: 'Root' } },
+  };
+
+  await manager.onSessionCreated(event);
+
+  expect(spawnCalls.length).toBe(0);
+});
+
 test('TmuxSessionManager does not track session on spawn failure', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig({ max_retry_attempts: 0 });
@@ -275,14 +337,14 @@ test('TmuxSessionManager uses config spawn_delay_ms and max_retry_attempts', asy
   expect(spawnCalls.length).toBe(1);
 });
 
-test('TmuxSessionManager resolves target pane for each spawn', async () => {
+test('TmuxSessionManager reuses the first resolved target pane for queued spawns', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
   const spawnTargets: Array<string | null | undefined> = [];
 
   const getCurrentPaneIdSpy = spyOn(tmuxUtils, 'getCurrentPaneId')
-    .mockResolvedValueOnce('%first-spawn')
-    .mockResolvedValueOnce(null);
+    .mockResolvedValueOnce('%root-pane')
+    .mockResolvedValueOnce('%wrong-pane');
 
   const spawnSpy = spyOn(utils, 'spawnTmuxPane').mockImplementation(async (
     _sessionId: string,
@@ -313,9 +375,9 @@ test('TmuxSessionManager resolves target pane for each spawn', async () => {
   await manager.onSessionCreated(firstEvent);
   await manager.onSessionCreated(secondEvent);
 
-  expect(getCurrentPaneIdSpy).toHaveBeenCalledTimes(2);
+  expect(getCurrentPaneIdSpy).toHaveBeenCalledTimes(1);
   expect(spawnSpy).toHaveBeenCalledTimes(2);
-  expect(spawnTargets).toEqual(['%first-spawn', null]);
+  expect(spawnTargets).toEqual(['%root-pane', '%root-pane']);
 });
 
 test('TmuxSessionManager respects auto_close=false', async () => {
@@ -337,6 +399,34 @@ test('TmuxSessionManager respects auto_close=false', async () => {
   await new Promise((r) => setTimeout(r, 2100));
 
   expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+});
+
+test('TmuxSessionManager does not close panes when session status is briefly missing', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const statusMock = mock()
+    .mockResolvedValueOnce({ data: {} })
+    .mockResolvedValueOnce({ data: { 'missing-test': { type: 'running' } } });
+
+  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+
+  spyOn(utils, 'spawnTmuxPane').mockResolvedValue({ success: true, paneId: '%123' });
+
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'missing-test', parentID: 'parent', title: 'Missing' } },
+  };
+
+  await manager.onSessionCreated(event);
+
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+
+  await manager.cleanup();
 });
 
 test('TmuxSessionManager applies layout once after queue drains (deferred layout)', async () => {

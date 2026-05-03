@@ -433,11 +433,10 @@ export async function spawnTmuxPane(
   const serverRunning = await isServerRunning(serverUrl);
   if (!serverRunning) {
     const defaultPort = process.env.OPENCODE_PORT ?? '4096';
-    log('[tmux] spawnTmuxPane: OpenCode server not running, skipping', {
+    log('[tmux] spawnTmuxPane: OpenCode server health check failed, continuing anyway', {
       serverUrl,
-      hint: `Start opencode with --port ${defaultPort}`,
+      hint: `If attach fails, start opencode with --port ${defaultPort}`,
     });
-    return { success: false };
   }
 
   const tmux = await getTmuxPath();

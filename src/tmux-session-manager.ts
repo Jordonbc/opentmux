@@ -1,7 +1,6 @@
 import type { PluginInput } from './types';
 import {
   POLL_INTERVAL_MS,
-  SESSION_MISSING_GRACE_MS,
   SESSION_TIMEOUT_MS,
   type TmuxConfig,
 } from './config';
@@ -24,7 +23,62 @@ interface TrackedSession {
 
 interface SessionCreatedEvent {
   type: string;
-  properties?: { info?: { id?: string; parentID?: string; title?: string } };
+  properties?: unknown;
+}
+
+interface NormalizedChildSession {
+  sessionId: string;
+  parentId: string;
+  title: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function stringProperty(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getSessionInfoCandidate(properties: Record<string, unknown>): Record<string, unknown> | undefined {
+  const info = properties.info;
+  if (isRecord(info)) {
+    return info;
+  }
+
+  const session = properties.session;
+  if (isRecord(session)) {
+    return session;
+  }
+
+  return undefined;
+}
+
+function normalizeChildSession(event: SessionCreatedEvent): NormalizedChildSession | null {
+  if (event.type !== 'session.created' || !isRecord(event.properties)) {
+    return null;
+  }
+
+  const sessionInfo = getSessionInfoCandidate(event.properties);
+  if (!sessionInfo) {
+    return null;
+  }
+
+  const sessionId =
+    stringProperty(sessionInfo, 'id') ?? stringProperty(event.properties, 'sessionID');
+  const parentId =
+    stringProperty(sessionInfo, 'parentID') ?? stringProperty(sessionInfo, 'parentId');
+
+  if (!sessionId || !parentId) {
+    return null;
+  }
+
+  return {
+    sessionId,
+    parentId,
+    title: stringProperty(sessionInfo, 'title') ?? 'Subagent',
+  };
 }
 
 export class TmuxSessionManager {
@@ -36,6 +90,7 @@ export class TmuxSessionManager {
   private pollInterval?: ReturnType<typeof setInterval>;
   private enabled = false;
   private shuttingDown = false;
+  private rootTargetPaneId?: string;
   private spawnQueue: SpawnQueue;
   private layoutDebounceTimer?: ReturnType<typeof setTimeout>;
   private reaper: ZombieReaper;
@@ -93,16 +148,18 @@ export class TmuxSessionManager {
 
   async onSessionCreated(event: SessionCreatedEvent): Promise<void> {
     if (!this.enabled) return;
-    if (event.type !== 'session.created') return;
 
-    const info = event.properties?.info;
-    if (!info?.id || !info?.parentID) {
+    const childSession = normalizeChildSession(event);
+    if (!childSession) {
+      if (event.type === 'session.created') {
+        log('[tmux-session-manager] ignored session.created event without child identifiers', {
+          properties: event.properties,
+        });
+      }
       return;
     }
 
-    const sessionId = info.id;
-    const parentId = info.parentID;
-    const title = info.title ?? 'Subagent';
+    const { sessionId, parentId, title } = childSession;
 
     if (this.sessions.has(sessionId) || this.pendingSessions.has(sessionId)) {
       log('[tmux-session-manager] session already tracked or pending', { sessionId });
@@ -209,10 +266,6 @@ export class TmuxSessionManager {
           tracked.missingSince = now;
         }
 
-        const missingTooLong =
-          !!tracked.missingSince &&
-          now - tracked.missingSince >= SESSION_MISSING_GRACE_MS;
-
         const isTimedOut = now - tracked.createdAt > SESSION_TIMEOUT_MS;
 
         if (!this.tmuxConfig.auto_close) {
@@ -221,8 +274,6 @@ export class TmuxSessionManager {
 
         if (isIdle) {
           sessionsToClose.push({ id: sessionId, reason: 'idle' });
-        } else if (missingTooLong) {
-          sessionsToClose.push({ id: sessionId, reason: 'missing_too_long' });
         } else if (isTimedOut) {
           sessionsToClose.push({ id: sessionId, reason: 'timeout' });
         }
@@ -278,6 +329,10 @@ export class TmuxSessionManager {
   }
 
   private async resolveTargetPaneId(): Promise<string | null> {
+    if (this.rootTargetPaneId) {
+      return this.rootTargetPaneId;
+    }
+
     try {
       const tmux = await getTmuxPath();
       if (!tmux) {
@@ -288,6 +343,11 @@ export class TmuxSessionManager {
       log('[tmux-session-manager] captured target pane id', {
         targetPaneId,
       });
+
+      if (targetPaneId) {
+        this.rootTargetPaneId = targetPaneId;
+      }
+
       return targetPaneId;
     } catch (err) {
       log('[tmux-session-manager] failed to capture target pane id', {
