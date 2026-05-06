@@ -268,8 +268,6 @@ export class TmuxSessionManager {
       for (const [sessionId, tracked] of this.sessions.entries()) {
         const status = allStatuses[sessionId];
 
-        const isIdle = status?.type === 'idle';
-
         if (status) {
           tracked.lastSeenAt = now;
           tracked.missingSince = undefined;
@@ -291,9 +289,7 @@ export class TmuxSessionManager {
           continue;
         }
 
-        if (isIdle) {
-          sessionsToClose.push({ id: sessionId, reason: 'idle' });
-        } else if (isMissingTooLong) {
+        if (isMissingTooLong) {
           sessionsToClose.push({ id: sessionId, reason: 'missing' });
         } else if (isTimedOut) {
           sessionsToClose.push({ id: sessionId, reason: 'timeout' });
@@ -326,7 +322,6 @@ export class TmuxSessionManager {
     process.once('SIGTERM', () => handler('SIGTERM'));
     process.once('SIGHUP', () => handler('SIGHUP'));
     process.once('SIGQUIT', () => handler('SIGQUIT'));
-    process.once('beforeExit', () => handler('beforeExit'));
   }
 
   private async handleShutdown(reason: string): Promise<void> {
@@ -458,11 +453,8 @@ export class TmuxSessionManager {
       this.layoutDebounceTimer = undefined;
     }
     
-    // Shutdown reaper (runs final scan)
     if (this.reaper) {
-      await this.reaper.shutdown().catch(err => 
-        log('[tmux-session-manager] reaper shutdown error', { error: String(err) })
-      );
+      this.reaper.stop();
     }
 
     if (this.sessions.size > 0) {
