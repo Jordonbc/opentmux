@@ -177,6 +177,30 @@ test('scanOnce kills confirmed zombies', async () => {
   expect(safeKillSpy).toHaveBeenCalledWith(500, 'SIGTERM');
 });
 
+test('scanOnce with tracked sessions ignores untracked attach processes', async () => {
+  reaper = new ZombieReaper('http://localhost:4096', {
+    ...DEFAULT_OPTIONS,
+    minZombieChecks: 1,
+    gracePeriodMs: 0,
+    trackedSessionIds: () => ['ses_child'],
+  });
+
+  spyOn(processUtils, 'findProcessIds').mockReturnValue([700, 701]);
+  spyOn(processUtils, 'getProcessCommand').mockImplementation((pid) => {
+    if (pid === 700) return 'opencode attach http://localhost:4096 --session ses_root';
+    if (pid === 701) return 'opencode attach http://localhost:4096 --session ses_child';
+    return null;
+  });
+
+  mockFetch.mockImplementation(async () => new Response(JSON.stringify({ data: {} }), { status: 200 }));
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await reaper.scanOnce();
+
+  expect(safeKillSpy).not.toHaveBeenCalledWith(700, 'SIGTERM');
+  expect(safeKillSpy).toHaveBeenCalledWith(701, 'SIGTERM');
+});
+
 test('reapAll (manual CLI) kills zombies immediately without grace period', async () => {
   spyOn(processUtils, 'findProcessIds').mockReturnValue([800, 801]);
   spyOn(processUtils, 'getProcessCommand').mockImplementation((pid) => {

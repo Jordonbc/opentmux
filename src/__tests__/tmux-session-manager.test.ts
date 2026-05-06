@@ -380,6 +380,27 @@ test('TmuxSessionManager reuses the first resolved target pane for queued spawns
   expect(spawnTargets).toEqual(['%root-pane', '%root-pane']);
 });
 
+test('TmuxSessionManager refuses to track root pane as a child session', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'root-pane-test', parentID: 'parent', title: 'Root Pane' } },
+  };
+
+  const promise = manager.onSessionCreated(event);
+
+  await waitFor(() => spawnControllers.has('root-pane-test'));
+  spawnControllers.get('root-pane-test')?.resolve({ success: true, paneId: '%77' });
+  await promise;
+
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+});
+
 test('TmuxSessionManager respects auto_close=false', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig({ auto_close: false });

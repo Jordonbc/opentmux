@@ -19,6 +19,7 @@ export interface ReaperOptions {
   selfDestructTimeoutMs?: number;
   startPort?: number;
   maxPorts?: number;
+  trackedSessionIds?: () => Iterable<string>;
 }
 
 interface ZombieCandidate {
@@ -229,12 +230,17 @@ export class ZombieReaper {
 
       // Filter processes that belong to THIS server
       const myProcesses = processes.filter(p => this.areUrlsEqual(p.targetUrl, this.serverUrl));
-      
-      if (myProcesses.length > 0) {
+      const trackedSessionIds = this.getTrackedSessionIds();
+      const scopedProcesses = trackedSessionIds
+        ? myProcesses.filter((p) => trackedSessionIds.has(p.sessionId))
+        : myProcesses;
+       
+      if (scopedProcesses.length > 0) {
         this.lastActivityTime = Date.now();
       } else {
-        // No active clients connected to this server
-        if (this.options.autoSelfDestruct && this.options.selfDestructTimeoutMs) {
+        // Automatic plugin scans are scoped to panes OpenTmux spawned. They must
+        // never terminate the containing/root opencode process.
+        if (!trackedSessionIds && this.options.autoSelfDestruct && this.options.selfDestructTimeoutMs) {
           const idleTime = Date.now() - this.lastActivityTime;
           if (idleTime > this.options.selfDestructTimeoutMs) {
             log('[zombie-reaper] Server abandoned (no clients). Self-destructing.', { 
@@ -246,7 +252,7 @@ export class ZombieReaper {
         }
       }
       
-      if (myProcesses.length === 0) {
+      if (scopedProcesses.length === 0) {
         // No processes for this server, clear candidates for safety
         // (Actually, we should only clear candidates that belong to this server, but 
         //  since we filter candidates by PID, and PIDs are unique, it's fine)
@@ -266,7 +272,7 @@ export class ZombieReaper {
 
       const currentPids = new Set<number>();
 
-      for (const proc of myProcesses) {
+      for (const proc of scopedProcesses) {
         currentPids.add(proc.pid);
         
         const isZombie = !activeSessions.has(proc.sessionId);
@@ -300,7 +306,12 @@ export class ZombieReaper {
         if (!currentPids.has(pid)) {
           this.candidates.delete(pid);
         }
-      }
+    }
+  }
+
+  private getTrackedSessionIds(): Set<string> | null {
+    if (!this.options.trackedSessionIds) return null;
+    return new Set(this.options.trackedSessionIds());
   }
 
   private areUrlsEqual(url1: string | null, url2: string): boolean {

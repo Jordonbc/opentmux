@@ -110,6 +110,46 @@ function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function shellTokens(command: string): string[] {
+  return command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+}
+
+function unquoteToken(token: string): string {
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    return token.slice(1, -1);
+  }
+  return token;
+}
+
+function isOpencodeAttachCommand(command: string): boolean {
+  return /(^|[\s/])opencode(?:\.exe)?\s+attach(\s|$)/.test(command);
+}
+
+function getAttachSessionId(command: string): string | null {
+  const tokens = shellTokens(command).map(unquoteToken);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === '--session') {
+      return tokens[i + 1] ?? null;
+    }
+    if (token.startsWith('--session=')) {
+      return token.slice('--session='.length) || null;
+    }
+  }
+
+  return null;
+}
+
+function isExpectedAttachProcess(command: string, expectedSessionId?: string): boolean {
+  if (!isOpencodeAttachCommand(command)) return false;
+  if (!expectedSessionId) return true;
+  return getAttachSessionId(command) === expectedSessionId;
+}
+
 export function resetServerCheck(): void {
   serverAvailable = null;
   serverCheckUrl = null;
@@ -494,8 +534,11 @@ export async function spawnTmuxPane(
   return lastResult;
 }
 
-export async function closeTmuxPane(paneId: string): Promise<boolean> {
-  log('[tmux] closeTmuxPane called', { paneId });
+export async function closeTmuxPane(
+  paneId: string,
+  expectedSessionId?: string,
+): Promise<boolean> {
+  log('[tmux] closeTmuxPane called', { paneId, expectedSessionId });
 
   if (!paneId) {
     log('[tmux] closeTmuxPane: no paneId provided');
@@ -509,6 +552,9 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
   }
 
   // PID-level termination
+  let foundAttachProcess = false;
+  let foundExpectedAttachProcess = false;
+
   try {
     const pidResult = await spawnAsyncFn([tmux, 'list-panes', '-t', paneId, '-F', '#{pane_pid}']);
     if (pidResult.exitCode === 0) {
@@ -519,7 +565,12 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
         const children = getProcessChildren(shellPid);
         for (const childPid of children) {
           const command = getProcessCommand(childPid);
-          if (command && command.includes('opencode attach')) {
+          if (command && isOpencodeAttachCommand(command)) {
+            foundAttachProcess = true;
+          }
+
+          if (command && isExpectedAttachProcess(command, expectedSessionId)) {
+            foundExpectedAttachProcess = true;
             log('[tmux] closeTmuxPane: killing child attach process', { childPid, command });
             
             safeKill(childPid, 'SIGTERM');
@@ -529,6 +580,12 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
               log('[tmux] closeTmuxPane: process did not exit, sending SIGKILL', { childPid });
               safeKill(childPid, 'SIGKILL');
             }
+          } else if (command && expectedSessionId && isOpencodeAttachCommand(command)) {
+            log('[tmux] closeTmuxPane: attach process session mismatch, not killing', {
+              childPid,
+              expectedSessionId,
+              command,
+            });
           }
         }
       }
@@ -536,6 +593,14 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
   } catch (err) {
     log('[tmux] closeTmuxPane: error during PID termination', { error: String(err) });
     // Continue to close pane anyway
+  }
+
+  if (expectedSessionId && foundAttachProcess && !foundExpectedAttachProcess) {
+    log('[tmux] closeTmuxPane: refusing to close pane with different attach session', {
+      paneId,
+      expectedSessionId,
+    });
+    return false;
   }
 
   try {

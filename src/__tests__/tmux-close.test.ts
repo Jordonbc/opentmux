@@ -137,3 +137,49 @@ test('closeTmuxPane does not kill main opencode process', async () => {
 
   expect(safeKillSpy).not.toHaveBeenCalled();
 });
+
+test('closeTmuxPane does not close pane for a different attach session', async () => {
+  mockSpawnData.results.push(
+    { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },
+    { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' },
+    { exitCode: 0, stdout: '12345\n', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+  );
+
+  spyOn(processUtils, 'getProcessChildren').mockReturnValue([9999]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue(
+    'opencode attach http://localhost:4096 --session root-session',
+  );
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  const result = await closeTmuxPane('%1', 'child-session');
+
+  expect(result).toBe(false);
+  expect(safeKillSpy).not.toHaveBeenCalled();
+  const killPaneCall = mockSpawnData.calls.find(c => c.command.includes('kill-pane'));
+  expect(killPaneCall).toBeUndefined();
+});
+
+test('closeTmuxPane kills only matching attach session', async () => {
+  mockSpawnData.results.push(
+    { exitCode: 0, stdout: '/usr/bin/tmux\n', stderr: '' },
+    { exitCode: 0, stdout: 'tmux 3.3\n', stderr: '' },
+    { exitCode: 0, stdout: '12345\n', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+    { exitCode: 0, stdout: '', stderr: '' },
+  );
+
+  spyOn(processUtils, 'getProcessChildren').mockReturnValue([9998, 9999]);
+  spyOn(processUtils, 'getProcessCommand').mockImplementation((pid) => {
+    if (pid === 9998) return 'opencode attach http://localhost:4096 --session root-session';
+    if (pid === 9999) return "opencode attach http://localhost:4096 --session 'child-session'";
+    return null;
+  });
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await closeTmuxPane('%1', 'child-session');
+
+  expect(safeKillSpy).not.toHaveBeenCalledWith(9998, 'SIGTERM');
+  expect(safeKillSpy).toHaveBeenCalledWith(9999, 'SIGTERM');
+});

@@ -128,6 +128,7 @@ export class TmuxSessionManager {
       gracePeriodMs: tmuxConfig.reaper_grace_period_ms,
       autoSelfDestruct: tmuxConfig.reaper_auto_self_destruct,
       selfDestructTimeoutMs: tmuxConfig.reaper_self_destruct_timeout_ms,
+      trackedSessionIds: () => this.sessions.keys(),
     });
 
     log('[tmux-session-manager] initialized', {
@@ -179,6 +180,14 @@ export class TmuxSessionManager {
       const paneResult = await this.spawnQueue.enqueue({ sessionId, title });
 
       if (paneResult.success && paneResult.paneId) {
+        if (paneResult.paneId === this.rootTargetPaneId) {
+          log('[tmux-session-manager] refusing to track root pane as child session', {
+            sessionId,
+            paneId: paneResult.paneId,
+          });
+          return;
+        }
+
         const now = Date.now();
         this.sessions.set(sessionId, {
           sessionId,
@@ -383,7 +392,17 @@ export class TmuxSessionManager {
       reason,
     });
 
-    const closed = await closeTmuxPane(tracked.paneId);
+    if (tracked.paneId === this.rootTargetPaneId) {
+      this.sessions.delete(sessionId);
+      log('[tmux-session-manager] refused to close root pane for child session', {
+        sessionId,
+        paneId: tracked.paneId,
+        reason,
+      });
+      return;
+    }
+
+    const closed = await closeTmuxPane(tracked.paneId, sessionId);
     if (!closed) {
       log('[tmux-session-manager] close failed, keeping session tracked', {
         sessionId,
@@ -450,14 +469,22 @@ export class TmuxSessionManager {
       log('[tmux-session-manager] closing all panes', {
         count: this.sessions.size,
       });
-      const closePromises = Array.from(this.sessions.values()).map((s) =>
-        closeTmuxPane(s.paneId).catch((err) =>
+      const closePromises = Array.from(this.sessions.values()).map((s) => {
+        if (s.paneId === this.rootTargetPaneId) {
+          log('[tmux-session-manager] refused to close root pane during cleanup', {
+            sessionId: s.sessionId,
+            paneId: s.paneId,
+          });
+          return Promise.resolve();
+        }
+
+        return closeTmuxPane(s.paneId, s.sessionId).catch((err) =>
           log('[tmux-session-manager] cleanup error for pane', {
             paneId: s.paneId,
             error: String(err),
           }),
-        ),
-      );
+        );
+      });
       await Promise.all(closePromises);
       this.sessions.clear();
     }
