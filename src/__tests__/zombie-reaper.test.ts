@@ -231,3 +231,24 @@ test('reapServers skips unrelated node processes', async () => {
 
   expect(safeKillSpy).not.toHaveBeenCalled();
 });
+
+test('reapServers skips commands that only contain opencode as a substring', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([951]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('node my-opencode-helper.js --port 4096');
+  const safeKillSpy = spyOn(processUtils, 'safeKill');
+
+  await ZombieReaper.reapServers(4096, 4096);
+
+  expect(safeKillSpy).not.toHaveBeenCalled();
+});
+
+test('reapAll scans configured port range', async () => {
+  const listeningSpy = spyOn(processUtils, 'getListeningPids').mockReturnValue([]);
+  spyOn(processUtils, 'findProcessIds').mockReturnValue([]);
+
+  await ZombieReaper.reapAll({ startPort: 5000, maxPorts: 2 });
+
+  expect(listeningSpy).toHaveBeenCalledWith(5000);
+  expect(listeningSpy).toHaveBeenCalledWith(5001);
+  expect(listeningSpy).not.toHaveBeenCalledWith(4096);
+});

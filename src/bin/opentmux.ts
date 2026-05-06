@@ -3,7 +3,7 @@
 import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:net";
 import { env, platform, exit, argv } from "node:process";
-import { existsSync, appendFileSync } from "node:fs";
+import { existsSync, appendFileSync, realpathSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -64,11 +64,18 @@ function findOpencodeBin(): string | null {
     const output = execSync(cmd, { encoding: "utf-8" }).trim().split("\n");
 
     const currentScript = argv[1];
+    const currentRealPath = currentScript && existsSync(currentScript)
+      ? realpathSync(currentScript)
+      : currentScript;
 
     for (const bin of output) {
       const normalizedBin = bin.trim();
+      const binRealPath = existsSync(normalizedBin)
+        ? realpathSync(normalizedBin)
+        : normalizedBin;
       if (
         normalizedBin === currentScript ||
+        binRealPath === currentRealPath ||
         basename(normalizedBin).startsWith("opentmux")
       )
         continue;
@@ -98,15 +105,32 @@ function findOpencodeBin(): string | null {
 function checkPort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer();
+    let settled = false;
+    const settle = (available: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(available);
+    };
+
     server.listen(port, "127.0.0.1");
     server.on("listening", () => {
-      server.close();
-      resolve(true);
+      server.close(() => settle(true));
     });
     server.on("error", () => {
-      resolve(false);
+      settle(false);
     });
   });
+}
+
+function isOpencodeAttachCommand(command: string | null): boolean {
+  return !!command && /(^|[\s/])opencode(?:\.exe)?\s+attach(\s|$)/.test(command);
+}
+
+function isOpencodeServerCommand(command: string | null): boolean {
+  return !!command &&
+    /(^|[\s/])opencode(?:\.exe)?(\s|$)/.test(command) &&
+    !isOpencodeAttachCommand(command) &&
+    /\s--port(?:\s|=|$)/.test(command);
 }
 
 function getTmuxPanePids(): Set<number> {
@@ -278,7 +302,17 @@ async function tryReclaimPort(
       command ?? "unknown",
     );
 
-    if (command && command.includes("opencode attach")) {
+    if (!isOpencodeAttachCommand(command) && !isOpencodeServerCommand(command)) {
+      log(
+        "Port owned by non-OpenCode process, skipping:",
+        port.toString(),
+        pid.toString(),
+        command ?? "unknown",
+      );
+      continue;
+    }
+
+    if (isOpencodeAttachCommand(command)) {
       if (inTmux) {
         log(
           "Port owned by tmux process, skipping:",
@@ -377,7 +411,10 @@ async function main() {
 
   // Check for opentmux-specific flags first
   if (args.includes("--reap") || args.includes("-reap")) {
-    await ZombieReaper.reapAll();
+    await ZombieReaper.reapAll({
+      startPort: OPENCODE_PORT_START,
+      maxPorts: config.max_ports,
+    });
     exit(0);
   }
 
@@ -494,7 +531,7 @@ async function main() {
         const pids = getListeningPids(p);
         for (const pid of pids) {
           const cmd = getProcessCommand(pid);
-          if (cmd && (cmd.includes("opencode attach") || cmd.includes("opencode --port"))) {
+          if (isOpencodeAttachCommand(cmd) || isOpencodeServerCommand(cmd)) {
             const startTime = getProcessStartTime(pid);
             if (startTime && startTime < oldestTime) {
               oldestTime = startTime;

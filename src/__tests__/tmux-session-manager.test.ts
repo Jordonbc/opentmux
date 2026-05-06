@@ -401,6 +401,40 @@ test('TmuxSessionManager respects auto_close=false', async () => {
   expect(utils.closeTmuxPane).not.toHaveBeenCalled();
 });
 
+test('TmuxSessionManager forgets missing sessions after timeout when auto_close=false', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ auto_close: false });
+  const statusMock = mock(async () => ({ data: {} }));
+  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+
+  let now = 1_000_000;
+  spyOn(Date, 'now').mockImplementation(() => now);
+
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'forget-test', parentID: 'parent', title: 'Forget' } },
+  };
+
+  const promise = manager.onSessionCreated(event);
+  await waitFor(() => spawnControllers.has('forget-test'));
+  spawnControllers.get('forget-test')?.resolve({ success: true, paneId: '%10' });
+  await promise;
+
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+  now += 10 * 60 * 1000 + 1;
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+
+  const secondPromise = manager.onSessionCreated(event);
+  await waitFor(() => spawnCalls.length === 2);
+  spawnControllers.get('forget-test')?.resolve({ success: true, paneId: '%11' });
+  await secondPromise;
+
+  await manager.cleanup();
+});
+
 test('TmuxSessionManager does not close panes when session status is briefly missing', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();

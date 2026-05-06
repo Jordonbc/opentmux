@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { TmuxConfigSchema } from "../config";
+import { PluginConfigSchema, TmuxConfigSchema } from "../config";
 
 test("TmuxConfigSchema has new config fields", () => {
   const config = TmuxConfigSchema.parse({});
@@ -30,4 +30,10 @@ test("TmuxConfigSchema validates min/max constraints", () => {
   expect(() => TmuxConfigSchema.parse({ spawn_delay_ms: 3000 })).toThrow();
   expect(() => TmuxConfigSchema.parse({ max_agents_per_column: 0 })).toThrow();
   expect(() => TmuxConfigSchema.parse({ max_agents_per_column: 15 })).toThrow();
+  expect(() => PluginConfigSchema.parse({ port: 0 })).toThrow();
+  expect(() => PluginConfigSchema.parse({ port: 65536 })).toThrow();
+  expect(() => PluginConfigSchema.parse({ port: 4096.5 })).toThrow();
+  expect(() => TmuxConfigSchema.parse({ reaper_interval_ms: 999 })).toThrow();
+  expect(() => TmuxConfigSchema.parse({ reaper_min_zombie_checks: 0 })).toThrow();
+  expect(() => TmuxConfigSchema.parse({ reaper_grace_period_ms: -1 })).toThrow();
 });

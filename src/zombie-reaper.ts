@@ -17,6 +17,7 @@ export interface ReaperOptions {
   gracePeriodMs: number;
   autoSelfDestruct?: boolean;
   selfDestructTimeoutMs?: number;
+  startPort?: number;
   maxPorts?: number;
 }
 
@@ -66,7 +67,9 @@ function parseAttachUrl(command: string): string | null {
 }
 
 function isOpencodeServerCommand(command: string): boolean {
-  return command.includes('opencode') && !command.includes('opencode attach');
+  return /(^|[\s/])opencode(?:\.exe)?(\s|$)/.test(command) &&
+    !/(^|[\s/])opencode(?:\.exe)?\s+attach(\s|$)/.test(command) &&
+    /\s--port(?:\s|=|$)/.test(command);
 }
 
 export class ZombieReaper {
@@ -101,10 +104,11 @@ export class ZombieReaper {
     
     // 1. Reap inactive servers first
     // Default to 10 ports if not specified
+    const startPort = options.startPort ?? OPENCODE_PORT_START;
     const maxPorts = options.maxPorts ?? 10;
-    const endPort = OPENCODE_PORT_START + Math.max(0, maxPorts - 1);
+    const endPort = startPort + Math.max(0, maxPorts - 1);
     
-    const reapedServers = await ZombieReaper.reapServers(OPENCODE_PORT_START, endPort);
+    const reapedServers = await ZombieReaper.reapServers(startPort, endPort);
     if (reapedServers > 0) {
       console.log(`Reaped ${reapedServers} inactive opencode servers.`);
     }

@@ -254,6 +254,7 @@ export class TmuxSessionManager {
 
       const now = Date.now();
       const sessionsToClose: { id: string; reason: string }[] = [];
+      const sessionsToForget: { id: string; reason: string }[] = [];
 
       for (const [sessionId, tracked] of this.sessions.entries()) {
         const status = allStatuses[sessionId];
@@ -275,6 +276,9 @@ export class TmuxSessionManager {
           now - tracked.missingSince > SESSION_TIMEOUT_MS;
 
         if (!this.tmuxConfig.auto_close) {
+          if (isTimedOut) {
+            sessionsToForget.push({ id: sessionId, reason: 'timeout' });
+          }
           continue;
         }
 
@@ -289,6 +293,10 @@ export class TmuxSessionManager {
 
       for (const item of sessionsToClose) {
         await this.closeSession(item.id, item.reason);
+      }
+
+      for (const item of sessionsToForget) {
+        this.forgetSession(item.id, item.reason);
       }
     } catch (err) {
       log('[tmux-session-manager] poll error', { error: String(err) });
@@ -390,6 +398,23 @@ export class TmuxSessionManager {
     log('[tmux-session-manager] session closed', { 
       sessionId,
       remainingSessions: this.sessions.size 
+    });
+
+    if (this.sessions.size === 0) {
+      this.stopPolling();
+    }
+  }
+
+  private forgetSession(sessionId: string, reason: string): void {
+    const tracked = this.sessions.get(sessionId);
+    if (!tracked) return;
+
+    this.sessions.delete(sessionId);
+    log('[tmux-session-manager] stopped tracking session', {
+      sessionId,
+      paneId: tracked.paneId,
+      reason,
+      remainingSessions: this.sessions.size,
     });
 
     if (this.sessions.size === 0) {

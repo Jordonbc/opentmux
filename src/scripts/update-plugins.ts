@@ -151,10 +151,9 @@ function main(): void {
   if (process.env.OPENCODE_TMUX_UPDATE !== '1') return;
 
   const config = loadConfig() ?? {};
-  const plugins = ensurePluginEntry(config);
-  const updateList = [CURRENT_PLUGIN, ...plugins];
+  ensurePluginEntry(config);
 
-  installLatest(updateList);
+  installLatest([CURRENT_PLUGIN]);
   writeLastRun();
 }
 

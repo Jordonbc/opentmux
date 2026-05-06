@@ -22,13 +22,13 @@ export const TmuxConfigSchema = z.object({
   
   // Reaper config
   reaper_enabled: z.boolean().default(true),
-  reaper_interval_ms: z.number().default(30000),
-  reaper_min_zombie_checks: z.number().default(3),
-  reaper_grace_period_ms: z.number().default(5000),
+  reaper_interval_ms: z.number().int().min(1000).default(30000),
+  reaper_min_zombie_checks: z.number().int().min(1).default(3),
+  reaper_grace_period_ms: z.number().int().min(0).default(5000),
   
   // Auto self-destruct for abandoned servers
   reaper_auto_self_destruct: z.boolean().default(true),
-  reaper_self_destruct_timeout_ms: z.number().default(60 * 60 * 1000), // 1 hour
+  reaper_self_destruct_timeout_ms: z.number().int().min(60_000).default(60 * 60 * 1000), // 1 hour
   
   // Port management
   rotate_port: z.boolean().default(false),
@@ -39,7 +39,7 @@ export type TmuxConfig = z.infer<typeof TmuxConfigSchema>;
 
 export const PluginConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  port: z.number().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
   layout: TmuxLayoutSchema.default('main-vertical'),
   main_pane_size: z.number().min(20).max(80).default(60),
   auto_close: z.boolean().default(true),
@@ -50,13 +50,13 @@ export const PluginConfigSchema = z.object({
   
   // Reaper config
   reaper_enabled: z.boolean().default(true),
-  reaper_interval_ms: z.number().default(30000),
-  reaper_min_zombie_checks: z.number().default(3),
-  reaper_grace_period_ms: z.number().default(5000),
+  reaper_interval_ms: z.number().int().min(1000).default(30000),
+  reaper_min_zombie_checks: z.number().int().min(1).default(3),
+  reaper_grace_period_ms: z.number().int().min(0).default(5000),
 
   // Auto self-destruct for abandoned servers
   reaper_auto_self_destruct: z.boolean().default(true),
-  reaper_self_destruct_timeout_ms: z.number().default(60 * 60 * 1000), // 1 hour
+  reaper_self_destruct_timeout_ms: z.number().int().min(60_000).default(60 * 60 * 1000), // 1 hour
 
   // Port management
   rotate_port: z.boolean().default(false),
