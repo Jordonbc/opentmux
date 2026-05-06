@@ -106,6 +106,10 @@ async function isServerRunning(serverUrl: string): Promise<boolean> {
   return false;
 }
 
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 export function resetServerCheck(): void {
   serverAvailable = null;
   serverCheckUrl = null;
@@ -366,7 +370,7 @@ async function attemptSpawnPane(
   serverUrl: string,
   targetPaneId?: string | null,
 ): Promise<SpawnPaneResult> {
-  const opencodeCmd = `opencode attach ${serverUrl} --session ${sessionId}`;
+  const opencodeCmd = `opencode attach ${shellEscape(serverUrl)} --session ${shellEscape(sessionId)}`;
   const paneTarget = targetPaneId ?? null;
 
   const args = [

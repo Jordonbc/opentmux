@@ -32,6 +32,43 @@ interface AttachProcess {
   targetUrl: string | null;
 }
 
+function shellTokens(command: string): string[] {
+  return command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+}
+
+function unquoteToken(token: string): string {
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    return token.slice(1, -1);
+  }
+  return token;
+}
+
+function parseAttachUrl(command: string): string | null {
+  const tokens = shellTokens(command);
+  const attachIndex = tokens.findIndex((token) => token === 'attach');
+  if (attachIndex === -1) return null;
+
+  for (let i = attachIndex + 1; i < tokens.length; i++) {
+    const token = unquoteToken(tokens[i]);
+    if (token === '--session') {
+      i++;
+      continue;
+    }
+    if (token.startsWith('--session=')) continue;
+    if (token.startsWith('-')) continue;
+    return token;
+  }
+
+  return null;
+}
+
+function isOpencodeServerCommand(command: string): boolean {
+  return command.includes('opencode') && !command.includes('opencode attach');
+}
+
 export class ZombieReaper {
   private serverUrl: string;
   private options: ReaperOptions;
@@ -39,6 +76,7 @@ export class ZombieReaper {
   private candidates = new Map<number, ZombieCandidate>();
   private isScanning = false;
   private lastActivityTime: number = Date.now();
+  private hasStarted = false;
 
   constructor(serverUrl: string, options: ReaperOptions) {
     this.serverUrl = serverUrl;
@@ -154,6 +192,7 @@ export class ZombieReaper {
     if (!this.options.enabled) return;
     if (this.pollInterval) return;
 
+    this.hasStarted = true;
     log('[zombie-reaper] starting', this.options);
     this.pollInterval = setInterval(() => this.scanOnce(), this.options.intervalMs);
   }
@@ -167,6 +206,7 @@ export class ZombieReaper {
   }
 
   async shutdown(): Promise<void> {
+    if (!this.options.enabled && !this.hasStarted) return;
     this.stop();
     log('[zombie-reaper] shutting down, running final scan');
     await this.scanOnce();
@@ -291,22 +331,14 @@ export class ZombieReaper {
       if (!command) continue;
 
       // Extract session ID
-      const sessionMatch = command.match(/--session\s+([a-zA-Z0-9_-]+)/);
-      
-      // Extract URL. We want the first non-flag argument after 'attach'.
-      // If the command follows our pattern: opencode attach <url> --session ...
-      // Then <url> is immediate.
-      // But we should be robust against: opencode attach --session ... <url> (if that was valid)
-      // The current tmux.ts ALWAYS puts URL first: `opencode attach ${serverUrl} ...`
-      // So we can just capture the first token after attach.
-      // We removed the hardcoded 'http://' prefix requirement.
-      const urlMatch = command.match(/attach\s+([^\s]+)/);
+      const sessionMatch = command.match(/--session(?:=|\s+)([a-zA-Z0-9_-]+)/);
+      const targetUrl = parseAttachUrl(command);
 
       if (sessionMatch && sessionMatch[1]) {
         results.push({
           pid,
           sessionId: sessionMatch[1],
-          targetUrl: urlMatch ? urlMatch[1] : null,
+          targetUrl,
           command,
         });
       }
@@ -442,8 +474,7 @@ export class ZombieReaper {
       for (const pid of pids) {
         // Verify it's an opencode process (safety check via command name)
         const cmd = getProcessCommand(pid) || '';
-        const isSuspicious = cmd.includes('opencode attach');
-        if (!isSuspicious) continue;
+        if (!isOpencodeServerCommand(cmd)) continue;
 
         // Verify via HTTP
         const url = `http://127.0.0.1:${port}`;

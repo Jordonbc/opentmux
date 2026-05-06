@@ -21,8 +21,9 @@ import {
 
 // Load config
 const config = loadConfig();
+const configuredPort = config.port ?? parseInt(env.OPENCODE_PORT || "4096", 10);
 const OPENCODE_PORT_START =
-  config.port || parseInt(env.OPENCODE_PORT || "4096", 10);
+  Number.isFinite(configuredPort) ? configuredPort : 4096;
 const OPENCODE_PORT_MAX = OPENCODE_PORT_START + (config.max_ports ?? 10) - 1;
 const LOG_FILE = join(tmpdir(), "opentmux.log");
 const HEALTH_TIMEOUT_MS = 1000;
@@ -493,12 +494,7 @@ async function main() {
         const pids = getListeningPids(p);
         for (const pid of pids) {
           const cmd = getProcessCommand(pid);
-          if (
-            cmd &&
-            (cmd.includes("opencode attach") ||
-              cmd.includes("node") ||
-              cmd.includes("bun"))
-          ) {
+          if (cmd && (cmd.includes("opencode attach") || cmd.includes("opencode --port"))) {
             const startTime = getProcessStartTime(pid);
             if (startTime && startTime < oldestTime) {
               oldestTime = startTime;

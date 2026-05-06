@@ -39,7 +39,7 @@ export type TmuxConfig = z.infer<typeof TmuxConfigSchema>;
 
 export const PluginConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  port: z.number().default(4096),
+  port: z.number().optional(),
   layout: TmuxLayoutSchema.default('main-vertical'),
   main_pane_size: z.number().min(20).max(80).default(60),
   auto_close: z.boolean().default(true),

@@ -10,6 +10,11 @@ const CONFIG_PATH = path.join(HOME, '.config', 'opencode', 'opencode.json');
 const STATE_DIR = path.join(HOME, '.config', 'opencode', 'opencode-agent-tmux');
 const STATE_PATH = path.join(STATE_DIR, 'update-state.json');
 const UPDATE_INTERVAL_HOURS = 12;
+const CURRENT_PLUGIN = '@jordonbc/opentmux';
+const LEGACY_PLUGIN_NAMES = new Set([
+  'opencode-subagent-tmux',
+  'opencode-agent-tmux',
+]);
 
 type OpencodeConfig = {
   plugin?: string[];
@@ -94,7 +99,7 @@ function ensurePluginEntry(config: OpencodeConfig): string[] {
   const existing = [...existingPlugin, ...existingPlugins];
 
   const normalized = existing.map((entry) =>
-    entry === 'opencode-subagent-tmux' ? 'opencode-agent-tmux' : entry
+    LEGACY_PLUGIN_NAMES.has(entry) ? CURRENT_PLUGIN : entry
   );
 
   const deduped: string[] = [];
@@ -107,12 +112,13 @@ function ensurePluginEntry(config: OpencodeConfig): string[] {
   const hasTmuxPlugin = deduped.some(
     (entry) =>
       entry === 'opencode-agent-tmux' ||
+      entry === CURRENT_PLUGIN ||
       entry.endsWith('/opentmux') ||
       entry.endsWith('/opencode-agent-tmux'),
   );
 
   if (!hasTmuxPlugin) {
-    deduped.push('opencode-agent-tmux');
+    deduped.push(CURRENT_PLUGIN);
   }
 
   const changed =
@@ -146,7 +152,7 @@ function main(): void {
 
   const config = loadConfig() ?? {};
   const plugins = ensurePluginEntry(config);
-  const updateList = ['opencode-agent-tmux', ...plugins];
+  const updateList = [CURRENT_PLUGIN, ...plugins];
 
   installLatest(updateList);
   writeLastRun();

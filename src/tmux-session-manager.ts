@@ -1,6 +1,7 @@
 import type { PluginInput } from './types';
 import {
   POLL_INTERVAL_MS,
+  SESSION_MISSING_GRACE_MS,
   SESSION_TIMEOUT_MS,
   type TmuxConfig,
 } from './config';
@@ -266,7 +267,12 @@ export class TmuxSessionManager {
           tracked.missingSince = now;
         }
 
-        const isTimedOut = now - tracked.createdAt > SESSION_TIMEOUT_MS;
+        const isMissingTooLong =
+          tracked.missingSince !== undefined &&
+          now - tracked.missingSince > SESSION_MISSING_GRACE_MS;
+        const isTimedOut =
+          tracked.missingSince !== undefined &&
+          now - tracked.missingSince > SESSION_TIMEOUT_MS;
 
         if (!this.tmuxConfig.auto_close) {
           continue;
@@ -274,6 +280,8 @@ export class TmuxSessionManager {
 
         if (isIdle) {
           sessionsToClose.push({ id: sessionId, reason: 'idle' });
+        } else if (isMissingTooLong) {
+          sessionsToClose.push({ id: sessionId, reason: 'missing' });
         } else if (isTimedOut) {
           sessionsToClose.push({ id: sessionId, reason: 'timeout' });
         }
@@ -367,7 +375,16 @@ export class TmuxSessionManager {
       reason,
     });
 
-    await closeTmuxPane(tracked.paneId);
+    const closed = await closeTmuxPane(tracked.paneId);
+    if (!closed) {
+      log('[tmux-session-manager] close failed, keeping session tracked', {
+        sessionId,
+        paneId: tracked.paneId,
+        reason,
+      });
+      return;
+    }
+
     this.sessions.delete(sessionId);
     
     log('[tmux-session-manager] session closed', { 
