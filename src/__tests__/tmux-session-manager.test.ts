@@ -290,6 +290,16 @@ test('TmuxSessionManager ignores events without session info', async () => {
   expect(spawnCalls.length).toBe(0);
 });
 
+test('TmuxSessionManager does not register beforeExit cleanup handler', () => {
+  const onceSpy = spyOn(process, 'once').mockReturnValue(process);
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+
+  new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  expect(onceSpy).not.toHaveBeenCalledWith('beforeExit', expect.any(Function));
+});
+
 test('TmuxSessionManager createEventHandler wraps onSessionCreated', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
@@ -477,6 +487,29 @@ test('TmuxSessionManager does not close panes when session status is briefly mis
   await manager.onSessionCreated(event);
 
   await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+  await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+
+  await manager.cleanup();
+});
+
+test('TmuxSessionManager does not close panes while session is idle but still listed', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const statusMock = mock(async () => ({ data: { 'idle-test': { type: 'idle' } } }));
+  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+
+  spyOn(utils, 'spawnTmuxPane').mockResolvedValue({ success: true, paneId: '%124' });
+
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const event = {
+    type: 'session.created',
+    properties: { info: { id: 'idle-test', parentID: 'parent', title: 'Idle' } },
+  };
+
+  await manager.onSessionCreated(event);
   await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
 
   expect(utils.closeTmuxPane).not.toHaveBeenCalled();
