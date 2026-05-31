@@ -86,6 +86,17 @@ You can customize behavior by creating `~/.config/opencode/opentmux.json`:
 | `main_pane_size` | number | `60` | Size of main pane (20-80%) |
 | `auto_close` | boolean | `true` | Auto-close panes when sessions complete |
 
+### Logging
+
+OpenTmux writes plugin logs to `/tmp/opencode-agent-tmux.log`.
+
+Set `OPENCODE_TMUX_LOG_LEVEL` to control verbosity:
+
+- `off`: disable plugin file logging
+- `error`: only failures and unexpected conditions
+- `info`: lifecycle events and errors (default)
+- `debug`: verbose queue, polling, and tmux command tracing
+
 ## ❓ Troubleshooting
 
 ### Panes Not Spawning
