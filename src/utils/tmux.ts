@@ -5,7 +5,7 @@ import {
   groupAgentsByColumn,
   mainPanePercentForColumns,
 } from '../layout';
-import { log } from './logger';
+import { log, logDebug, logError } from './logger';
 import { 
   getProcessChildren, 
   getProcessCommand, 
@@ -29,7 +29,7 @@ interface SpawnResult {
   stderr: string;
 }
 
-async function spawnAsync(
+export async function spawnAsync(
   command: string[],
   options?: { ignoreOutput?: boolean },
 ): Promise<SpawnResult> {
@@ -93,7 +93,7 @@ async function isServerRunning(serverUrl: string): Promise<boolean> {
     if (available) {
       serverCheckUrl = serverUrl;
       serverAvailable = true;
-      log('[tmux] isServerRunning: checked', { serverUrl, available, attempt });
+      logDebug('[tmux] isServerRunning: checked', { serverUrl, available, attempt });
       return true;
     }
 
@@ -102,7 +102,7 @@ async function isServerRunning(serverUrl: string): Promise<boolean> {
     }
   }
 
-  log('[tmux] isServerRunning: checked', { serverUrl, available: false });
+  logDebug('[tmux] isServerRunning: checked', { serverUrl, available: false });
   return false;
 }
 
@@ -168,7 +168,7 @@ async function findTmuxPath(): Promise<string | null> {
     const result = await spawnAsyncFn([cmd, 'tmux']);
 
     if (result.exitCode !== 0) {
-      log("[tmux] findTmuxPath: 'which tmux' failed", {
+      logError("[tmux] findTmuxPath: 'which tmux' failed", {
         exitCode: result.exitCode,
       });
       return null;
@@ -176,23 +176,23 @@ async function findTmuxPath(): Promise<string | null> {
 
     const path = result.stdout.trim().split('\n')[0];
     if (!path) {
-      log('[tmux] findTmuxPath: no path in output');
+      logError('[tmux] findTmuxPath: no path in output');
       return null;
     }
 
     const verifyResult = await spawnAsyncFn([path, '-V']);
     if (verifyResult.exitCode !== 0) {
-      log('[tmux] findTmuxPath: tmux -V failed', {
+      logError('[tmux] findTmuxPath: tmux -V failed', {
         path,
         verifyExit: verifyResult.exitCode,
       });
       return null;
     }
 
-    log('[tmux] findTmuxPath: found tmux', { path });
+    logDebug('[tmux] findTmuxPath: found tmux', { path });
     return path;
   } catch (err) {
-    log('[tmux] findTmuxPath: exception', { error: String(err) });
+    logError('[tmux] findTmuxPath: exception', { error: String(err) });
     return null;
   }
 }
@@ -204,7 +204,7 @@ export async function getTmuxPath(): Promise<string | null> {
 
   tmuxPath = await findTmuxPath();
   tmuxChecked = true;
-  log('[tmux] getTmuxPath: initialized', { tmuxPath });
+  logDebug('[tmux] getTmuxPath: initialized', { tmuxPath });
   return tmuxPath;
 }
 
@@ -233,9 +233,9 @@ async function applyLayout(
       await spawnAsyncFn([tmux, 'select-layout', layout]);
     }
 
-    log('[tmux] applyLayout: applied', { layout, mainPaneSize });
+    logDebug('[tmux] applyLayout: applied', { layout, mainPaneSize });
   } catch (err) {
-    log('[tmux] applyLayout: exception', { error: String(err) });
+    logError('[tmux] applyLayout: exception', { error: String(err) });
   }
 }
 
@@ -327,14 +327,14 @@ async function tryApplyMainVerticalMultiColumnLayout(
 
   const result = await spawnAsyncFn([tmux, 'select-layout', layoutString]);
   if (result.exitCode === 0) {
-    log('[tmux] applyTmuxLayout: applied custom layout', {
+    logDebug('[tmux] applyTmuxLayout: applied custom layout', {
       columns: wpColumns.length,
       mainPanePercent,
     });
     return true;
   }
 
-  log('[tmux] applyTmuxLayout: custom layout failed', {
+  logError('[tmux] applyTmuxLayout: custom layout failed', {
     exitCode: result.exitCode,
     stderr: result.stderr.trim(),
   });
@@ -348,13 +348,13 @@ async function tryApplyMainVerticalMultiColumnLayout(
  */
 export async function applyTmuxLayout(): Promise<void> {
   if (!storedConfig) {
-    log('[tmux] applyTmuxLayout: no stored config, skipping');
+    logDebug('[tmux] applyTmuxLayout: no stored config, skipping');
     return;
   }
 
   const tmux = await getTmuxPath();
   if (!tmux) {
-    log('[tmux] applyTmuxLayout: tmux binary not found');
+    logError('[tmux] applyTmuxLayout: tmux binary not found');
     return;
   }
 
@@ -375,13 +375,13 @@ export async function applyTmuxLayout(): Promise<void> {
     }
     await applyLayout(tmux, layout, mainPaneSize);
   } catch (err) {
-    log('[tmux] applyTmuxLayout: failed, falling back to built-in layout', {
+    logError('[tmux] applyTmuxLayout: failed, falling back to built-in layout', {
       error: String(err),
     });
     try {
       await spawnAsyncFn([tmux, 'select-layout', layout === 'tiled' ? 'tiled' : 'main-vertical']);
     } catch (fallbackErr) {
-      log('[tmux] applyTmuxLayout: fallback also failed', { error: String(fallbackErr) });
+      logError('[tmux] applyTmuxLayout: fallback also failed', { error: String(fallbackErr) });
     }
   }
 }
@@ -400,6 +400,10 @@ export function setSpawnAsyncFn(fn: typeof spawnAsync): void {
 
 export function resetSpawnAsyncFn(): void {
   spawnAsyncFn = spawnAsync;
+}
+
+export function resetStoredConfigForTest(): void {
+  storedConfig = null;
 }
 
 async function attemptSpawnPane(
@@ -424,12 +428,12 @@ async function attemptSpawnPane(
     opencodeCmd,
   ];
 
-  log('[tmux] attemptSpawnPane: executing', { tmux, args, opencodeCmd, paneTarget });
+  logDebug('[tmux] attemptSpawnPane: executing', { tmux, args, opencodeCmd, paneTarget });
 
   const result = await spawnAsyncFn([tmux, ...args]);
   const paneId = result.stdout.trim();
 
-  log('[tmux] attemptSpawnPane: split result', {
+  logDebug('[tmux] attemptSpawnPane: split result', {
     exitCode: result.exitCode,
     paneId,
     stderr: result.stderr.trim(),
@@ -441,7 +445,7 @@ async function attemptSpawnPane(
       { ignoreOutput: true },
     );
 
-    log('[tmux] attemptSpawnPane: SUCCESS, pane created', {
+    logDebug('[tmux] attemptSpawnPane: SUCCESS, pane created', {
       paneId,
     });
     return { success: true, paneId };
@@ -457,7 +461,7 @@ export async function spawnTmuxPane(
   serverUrl: string,
   targetPaneId?: string | null,
 ): Promise<SpawnPaneResult> {
-  log('[tmux] spawnTmuxPane called', {
+  logDebug('[tmux] spawnTmuxPane called', {
     sessionId,
     description,
     config,
@@ -465,19 +469,19 @@ export async function spawnTmuxPane(
   });
 
   if (!config.enabled) {
-    log('[tmux] spawnTmuxPane: config.enabled is false, skipping');
+    logDebug('[tmux] spawnTmuxPane: config.enabled is false, skipping');
     return { success: false };
   }
 
   if (!isInsideTmux()) {
-    log('[tmux] spawnTmuxPane: not inside tmux, skipping');
+    logDebug('[tmux] spawnTmuxPane: not inside tmux, skipping');
     return { success: false };
   }
 
   const serverRunning = await isServerRunning(serverUrl);
   if (!serverRunning) {
     const defaultPort = process.env.OPENCODE_PORT ?? '4096';
-    log('[tmux] spawnTmuxPane: OpenCode server health check failed, continuing anyway', {
+    logError('[tmux] spawnTmuxPane: OpenCode server health check failed, continuing anyway', {
       serverUrl,
       hint: `If attach fails, start opencode with --port ${defaultPort}`,
     });
@@ -485,7 +489,7 @@ export async function spawnTmuxPane(
 
   const tmux = await getTmuxPath();
   if (!tmux) {
-    log('[tmux] spawnTmuxPane: tmux binary not found, skipping');
+    logError('[tmux] spawnTmuxPane: tmux binary not found, skipping');
     return { success: false };
   }
 
@@ -510,12 +514,12 @@ export async function spawnTmuxPane(
         return lastResult;
       }
 
-      log('[tmux] spawnTmuxPane: attempt failed', {
+      logError('[tmux] spawnTmuxPane: attempt failed', {
         attempt: attempt + 1,
         maxRetries,
       });
     } catch (err) {
-      log('[tmux] spawnTmuxPane: exception on attempt', {
+      logError('[tmux] spawnTmuxPane: exception on attempt', {
         attempt: attempt + 1,
         error: String(err),
       });
@@ -525,12 +529,12 @@ export async function spawnTmuxPane(
     attempt++;
     if (attempt <= maxRetries) {
       const backoffMs = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
-      log('[tmux] spawnTmuxPane: waiting before retry', { backoffMs, attempt });
+      logDebug('[tmux] spawnTmuxPane: waiting before retry', { backoffMs, attempt });
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 
-  log('[tmux] spawnTmuxPane: all retries exhausted', { attempts: attempt });
+  logError('[tmux] spawnTmuxPane: all retries exhausted', { attempts: attempt });
   return lastResult;
 }
 
@@ -538,16 +542,16 @@ export async function closeTmuxPane(
   paneId: string,
   expectedSessionId?: string,
 ): Promise<boolean> {
-  log('[tmux] closeTmuxPane called', { paneId, expectedSessionId });
+  logDebug('[tmux] closeTmuxPane called', { paneId, expectedSessionId });
 
   if (!paneId) {
-    log('[tmux] closeTmuxPane: no paneId provided');
+    logError('[tmux] closeTmuxPane: no paneId provided');
     return false;
   }
 
   const tmux = await getTmuxPath();
   if (!tmux) {
-    log('[tmux] closeTmuxPane: tmux binary not found');
+    logError('[tmux] closeTmuxPane: tmux binary not found');
     return false;
   }
 
@@ -560,7 +564,7 @@ export async function closeTmuxPane(
     if (pidResult.exitCode === 0) {
       const shellPid = parseInt(pidResult.stdout.trim(), 10);
       if (Number.isFinite(shellPid)) {
-        log('[tmux] closeTmuxPane: found shell PID', { paneId, shellPid });
+        logDebug('[tmux] closeTmuxPane: found shell PID', { paneId, shellPid });
         
         const children = getProcessChildren(shellPid);
         for (const childPid of children) {
@@ -571,17 +575,17 @@ export async function closeTmuxPane(
 
           if (command && isExpectedAttachProcess(command, expectedSessionId)) {
             foundExpectedAttachProcess = true;
-            log('[tmux] closeTmuxPane: killing child attach process', { childPid, command });
+            logDebug('[tmux] closeTmuxPane: killing child attach process', { childPid, command });
             
             safeKill(childPid, 'SIGTERM');
             const exited = await waitForProcessExit(childPid, 2000);
             
             if (!exited) {
-              log('[tmux] closeTmuxPane: process did not exit, sending SIGKILL', { childPid });
+              logError('[tmux] closeTmuxPane: process did not exit, sending SIGKILL', { childPid });
               safeKill(childPid, 'SIGKILL');
             }
           } else if (command && expectedSessionId && isOpencodeAttachCommand(command)) {
-            log('[tmux] closeTmuxPane: attach process session mismatch, not killing', {
+            logError('[tmux] closeTmuxPane: attach process session mismatch, not killing', {
               childPid,
               expectedSessionId,
               command,
@@ -591,12 +595,12 @@ export async function closeTmuxPane(
       }
     }
   } catch (err) {
-    log('[tmux] closeTmuxPane: error during PID termination', { error: String(err) });
+    logError('[tmux] closeTmuxPane: error during PID termination', { error: String(err) });
     // Continue to close pane anyway
   }
 
   if (expectedSessionId && foundAttachProcess && !foundExpectedAttachProcess) {
-    log('[tmux] closeTmuxPane: refusing to close pane with different attach session', {
+    logError('[tmux] closeTmuxPane: refusing to close pane with different attach session', {
       paneId,
       expectedSessionId,
     });
@@ -606,25 +610,25 @@ export async function closeTmuxPane(
   try {
     const result = await spawnAsyncFn([tmux, 'kill-pane', '-t', paneId]);
 
-    log('[tmux] closeTmuxPane: result', {
+    logDebug('[tmux] closeTmuxPane: result', {
       exitCode: result.exitCode,
       stderr: result.stderr.trim(),
     });
 
     if (result.exitCode === 0) {
-      log('[tmux] closeTmuxPane: SUCCESS, pane closed', { paneId });
+      logDebug('[tmux] closeTmuxPane: SUCCESS, pane closed', { paneId });
 
       await applyTmuxLayout();
 
       return true;
     }
 
-    log('[tmux] closeTmuxPane: failed (pane may already be closed)', {
+    logError('[tmux] closeTmuxPane: failed (pane may already be closed)', {
       paneId,
     });
     return false;
   } catch (err) {
-    log('[tmux] closeTmuxPane: exception', { error: String(err) });
+    logError('[tmux] closeTmuxPane: exception', { error: String(err) });
     return false;
   }
 }

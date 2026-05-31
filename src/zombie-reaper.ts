@@ -6,7 +6,7 @@ import {
   waitForProcessExit,
   getListeningPids,
 } from './utils/process';
-import { log } from './utils/logger';
+import { log, logDebug, logError } from './utils/logger';
 
 const OPENCODE_PORT_START = 4096;
 
@@ -198,7 +198,7 @@ export class ZombieReaper {
     if (this.pollInterval) return;
 
     this.hasStarted = true;
-    log('[zombie-reaper] starting', this.options);
+    logDebug('[zombie-reaper] starting', this.options);
     this.pollInterval = setInterval(() => this.scanOnce(), this.options.intervalMs);
   }
 
@@ -206,14 +206,14 @@ export class ZombieReaper {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = undefined;
-      log('[zombie-reaper] stopped');
+      logDebug('[zombie-reaper] stopped');
     }
   }
 
   async shutdown(): Promise<void> {
     if (!this.options.enabled && !this.hasStarted) return;
     this.stop();
-    log('[zombie-reaper] shutting down, running final scan');
+    logDebug('[zombie-reaper] shutting down, running final scan');
     await this.scanOnce();
   }
 
@@ -243,7 +243,7 @@ export class ZombieReaper {
         if (!trackedSessionIds && this.options.autoSelfDestruct && this.options.selfDestructTimeoutMs) {
           const idleTime = Date.now() - this.lastActivityTime;
           if (idleTime > this.options.selfDestructTimeoutMs) {
-            log('[zombie-reaper] Server abandoned (no clients). Self-destructing.', { 
+            logError('[zombie-reaper] Server abandoned (no clients). Self-destructing.', {
               idleTimeMs: idleTime,
               timeoutMs: this.options.selfDestructTimeoutMs
             });
@@ -266,7 +266,7 @@ export class ZombieReaper {
       // Fetch active sessions from server
       const activeSessions = await this.fetchActiveSessions(this.serverUrl);
       if (activeSessions === null) {
-        log('[zombie-reaper] server unreachable, skipping scan');
+          logError('[zombie-reaper] server unreachable, skipping scan');
         return;
       }
 
@@ -294,7 +294,7 @@ export class ZombieReaper {
       this.pruneCandidates(currentPids);
 
     } catch (err) {
-      log('[zombie-reaper] scan error', { error: String(err) });
+      logError('[zombie-reaper] scan error', { error: String(err) });
     } finally {
       this.isScanning = false;
     }

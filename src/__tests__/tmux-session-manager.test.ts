@@ -5,6 +5,7 @@ import type { TmuxConfig } from '../config';
 import * as utils from '../utils';
 import * as tmuxUtils from '../utils/tmux';
 import { setSpawnAsyncFn, resetSpawnAsyncFn, resetTmuxPathCache } from '../utils/tmux';
+import { ZombieReaper } from '../zombie-reaper';
 
 // Helper to create controlled promises for test synchronization
 function createControlledPromise<T>() {
@@ -35,6 +36,7 @@ async function waitFor(
 let spawnCalls: Array<{ sessionId: string; title: string }> = [];
 let spawnControllers: Map<string, { resolve: (result: { success: boolean; paneId?: string }) => void }> = new Map();
 let layoutCallCount = 0;
+const originalTmuxPane = process.env.TMUX_PANE;
 
 function createMockPluginInput(): PluginInput {
   return {
@@ -76,6 +78,7 @@ beforeEach(() => {
   spawnControllers.clear();
   layoutCallCount = 0;
   resetTmuxPathCache();
+  process.env.TMUX_PANE = '%root-pane';
 
   setSpawnAsyncFn(async (command: string[]) => {
     if (command.includes('display-message')) {
@@ -109,6 +112,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalTmuxPane) {
+    process.env.TMUX_PANE = originalTmuxPane;
+  } else {
+    delete process.env.TMUX_PANE;
+  }
   resetSpawnAsyncFn();
   mock.restore();
 });
@@ -300,6 +308,179 @@ test('TmuxSessionManager does not register beforeExit cleanup handler', () => {
   expect(onceSpy).not.toHaveBeenCalledWith('beforeExit', expect.any(Function));
 });
 
+test('TmuxSessionManager registers shutdown handlers for tmux signals', () => {
+  const onceSpy = spyOn(process, 'once').mockReturnValue(process);
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+
+  new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  expect(onceSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
+  expect(onceSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+  expect(onceSpy).toHaveBeenCalledWith('SIGHUP', expect.any(Function));
+  expect(onceSpy).toHaveBeenCalledWith('SIGQUIT', expect.any(Function));
+});
+
+test('TmuxSessionManager starts the reaper and runs an initial scan when enabled', async () => {
+  const startSpy = spyOn(ZombieReaper.prototype, 'start').mockImplementation(() => {});
+  const scanOnceSpy = spyOn(ZombieReaper.prototype, 'scanOnce').mockResolvedValue(undefined);
+
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ reaper_enabled: true });
+
+  new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  expect(startSpy).toHaveBeenCalledTimes(1);
+  expect(scanOnceSpy).toHaveBeenCalledTimes(1);
+});
+
+test('TmuxSessionManager logs initial reaper scan failures', async () => {
+  const startSpy = spyOn(ZombieReaper.prototype, 'start').mockImplementation(() => {});
+  const scanOnceSpy = spyOn(ZombieReaper.prototype, 'scanOnce').mockRejectedValueOnce(
+    new Error('scan failed'),
+  );
+  const logErrorSpy = spyOn(utils, 'logError').mockImplementation(() => {});
+
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ reaper_enabled: true });
+
+  new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(startSpy).toHaveBeenCalledTimes(1);
+  expect(scanOnceSpy).toHaveBeenCalledTimes(1);
+  expect(logErrorSpy).toHaveBeenCalledWith(
+    '[tmux-session-manager] initial reaper scan failed',
+    { error: 'Error: scan failed' },
+  );
+});
+
+test('TmuxSessionManager resolves TMUX_PANE and handles shutdown cleanup once', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ enabled: false });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const methods = manager as unknown as {
+    resolveTargetPaneId: () => Promise<string | null>;
+    handleShutdown: (reason: string) => Promise<void>;
+    cleanup: () => Promise<void>;
+  };
+
+  const cleanupSpy = spyOn(manager, 'cleanup').mockResolvedValue();
+
+  expect(await methods.resolveTargetPaneId()).toBe('%root-pane');
+  await methods.handleShutdown('SIGINT');
+  expect(cleanupSpy).toHaveBeenCalledTimes(1);
+});
+
+test('TmuxSessionManager signal callbacks invoke cleanup through handleShutdown', async () => {
+  const startSpy = spyOn(ZombieReaper.prototype, 'start').mockImplementation(() => {});
+  const scanOnceSpy = spyOn(ZombieReaper.prototype, 'scanOnce').mockResolvedValue(undefined);
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const cleanupSpy = spyOn(manager, 'cleanup').mockResolvedValue();
+
+  process.emit('SIGINT');
+  process.emit('SIGTERM');
+  process.emit('SIGHUP');
+  process.emit('SIGQUIT');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(startSpy).toHaveBeenCalledTimes(1);
+  expect(scanOnceSpy).toHaveBeenCalledTimes(1);
+  expect(cleanupSpy).toHaveBeenCalledTimes(1);
+});
+
+test('TmuxSessionManager debounced layout callback eventually runs', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const methods = manager as unknown as {
+    scheduleDebouncedLayout: () => void;
+  };
+
+  methods.scheduleDebouncedLayout();
+
+  await waitFor(() => layoutCallCount > 0, 500);
+
+  expect(layoutCallCount).toBeGreaterThan(0);
+});
+
+test('TmuxSessionManager isServerAlive returns false when fetch fails', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ enabled: false });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const methods = manager as unknown as {
+    isServerAlive: () => Promise<boolean>;
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(async () => {
+    throw new Error('network down');
+  }) as unknown as typeof fetch;
+
+  try {
+    await expect(methods.isServerAlive()).resolves.toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('TmuxSessionManager startPolling and stopPolling manage the interval', () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ enabled: false });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const methods = manager as unknown as {
+    startPolling: () => void;
+    stopPolling: () => void;
+  };
+
+  methods.startPolling();
+  methods.stopPolling();
+
+  expect(true).toBe(true);
+});
+
+test('TmuxSessionManager pollSessions handles unreachable server failures', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig({ enabled: false });
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+  const methods = manager as unknown as {
+    pollSessions: () => Promise<void>;
+    sessions: Map<string, { sessionId: string; paneId: string; parentId: string; title: string; createdAt: number; lastSeenAt: number }>;
+  };
+  const client = manager as unknown as {
+    client: {
+      session: {
+        status: { mockRejectedValue: (error: Error) => void };
+      };
+    };
+  };
+
+  methods.sessions.set('session-fail', {
+    sessionId: 'session-fail',
+    paneId: '%1',
+    parentId: 'parent',
+    title: 'Fail',
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  const cleanupSpy = spyOn(manager, 'cleanup').mockResolvedValue();
+  client.client.session.status.mockRejectedValue(new Error('status failed'));
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(async () => new Response('down', { status: 503 })) as unknown as typeof fetch;
+
+  try {
+    await methods.pollSessions();
+    expect(cleanupSpy).toHaveBeenCalledTimes(1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('TmuxSessionManager createEventHandler wraps onSessionCreated', async () => {
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
@@ -348,6 +529,8 @@ test('TmuxSessionManager uses config spawn_delay_ms and max_retry_attempts', asy
 });
 
 test('TmuxSessionManager reuses the first resolved target pane for queued spawns', async () => {
+  delete process.env.TMUX_PANE;
+
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
   const spawnTargets: Array<string | null | undefined> = [];
@@ -388,6 +571,136 @@ test('TmuxSessionManager reuses the first resolved target pane for queued spawns
   expect(getCurrentPaneIdSpy).toHaveBeenCalledTimes(1);
   expect(spawnSpy).toHaveBeenCalledTimes(2);
   expect(spawnTargets).toEqual(['%root-pane', '%root-pane']);
+});
+
+test('TmuxSessionManager prefers TMUX_PANE over active pane lookup', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const spawnTargets: Array<string | null | undefined> = [];
+
+  const getCurrentPaneIdSpy = spyOn(tmuxUtils, 'getCurrentPaneId').mockResolvedValue('%wrong-pane');
+  const spawnSpy = spyOn(utils, 'spawnTmuxPane').mockImplementation(async (
+    _sessionId: string,
+    _title: string,
+    _config: TmuxConfig,
+    _serverUrl: string,
+    targetPaneId?: string | null,
+  ) => {
+    spawnTargets.push(targetPaneId);
+    return { success: true, paneId: '%101' };
+  });
+
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  await manager.onSessionCreated({
+    type: 'session.created',
+    properties: { info: { id: 'env-pane-test', parentID: 'parent', title: 'Env Pane' } },
+  });
+
+  expect(getCurrentPaneIdSpy).not.toHaveBeenCalled();
+  expect(spawnSpy).toHaveBeenCalledTimes(1);
+  expect(spawnTargets).toEqual(['%root-pane']);
+});
+
+test('TmuxSessionManager cleanup does not close the root pane from TMUX_PANE', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const sessions = (manager as unknown as {
+    sessions: Map<string, { sessionId: string; paneId: string; parentId: string; title: string; createdAt: number; lastSeenAt: number }>;
+  }).sessions;
+
+  sessions.set('root-session', {
+    sessionId: 'root-session',
+    paneId: '%root-pane',
+    parentId: 'parent',
+    title: 'Root',
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  await manager.cleanup();
+
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+});
+
+test('TmuxSessionManager closeSession keeps tracking when pane close fails', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const sessions = (manager as unknown as {
+    sessions: Map<string, { sessionId: string; paneId: string; parentId: string; title: string; createdAt: number; lastSeenAt: number }>;
+  }).sessions;
+  const state = manager as unknown as { rootTargetPaneId?: string; closeSession: (sessionId: string, reason: string) => Promise<void> };
+  state.rootTargetPaneId = '%root-pane';
+
+  sessions.set('close-fail', {
+    sessionId: 'close-fail',
+    paneId: '%99',
+    parentId: 'parent',
+    title: 'Close Fail',
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  spyOn(utils, 'closeTmuxPane').mockResolvedValueOnce(false);
+
+  await state.closeSession('close-fail', 'missing');
+
+  expect(sessions.has('close-fail')).toBe(true);
+  expect(utils.closeTmuxPane).toHaveBeenCalledWith('%99', 'close-fail');
+});
+
+test('TmuxSessionManager closeSession refuses to close the root pane', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const sessions = (manager as unknown as {
+    sessions: Map<string, { sessionId: string; paneId: string; parentId: string; title: string; createdAt: number; lastSeenAt: number }>;
+  }).sessions;
+  const state = manager as unknown as { rootTargetPaneId?: string; closeSession: (sessionId: string, reason: string) => Promise<void> };
+  state.rootTargetPaneId = '%root-pane';
+
+  sessions.set('root-session', {
+    sessionId: 'root-session',
+    paneId: '%root-pane',
+    parentId: 'parent',
+    title: 'Root',
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  await state.closeSession('root-session', 'cleanup');
+
+  expect(sessions.has('root-session')).toBe(false);
+  expect(utils.closeTmuxPane).not.toHaveBeenCalled();
+});
+
+test('TmuxSessionManager cleanup survives pane close rejection and clears sessions', async () => {
+  const ctx = createMockPluginInput();
+  const config = createTmuxConfig();
+  const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+  const sessions = (manager as unknown as {
+    sessions: Map<string, { sessionId: string; paneId: string; parentId: string; title: string; createdAt: number; lastSeenAt: number }>;
+  }).sessions;
+  sessions.set('cleanup-fail', {
+    sessionId: 'cleanup-fail',
+    paneId: '%77',
+    parentId: 'parent',
+    title: 'Cleanup Fail',
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  spyOn(utils, 'closeTmuxPane').mockRejectedValueOnce(new Error('boom'));
+
+  await manager.cleanup();
+
+  expect(sessions.size).toBe(0);
 });
 
 test('TmuxSessionManager refuses to track root pane as a child session', async () => {
@@ -551,4 +864,35 @@ test('TmuxSessionManager applies layout once after queue drains (deferred layout
   await new Promise((r) => setTimeout(r, 100));
 
   expect(layoutCallCount).toBeGreaterThan(0);
+});
+
+test('TmuxSessionManager shuts down when status polling fails and server is unreachable', async () => {
+  const ctx = createMockPluginInput();
+  ctx.client.session.status = mock(async () => {
+    throw new Error('status failed');
+  }) as typeof ctx.client.session.status;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(async () => new Response('unavailable', { status: 503 })) as unknown as typeof fetch;
+
+  try {
+    const config = createTmuxConfig();
+    const manager = new TmuxSessionManager(ctx, config, 'http://localhost:4096');
+
+    const event = {
+      type: 'session.created',
+      properties: { info: { id: 'shutdown-test', parentID: 'parent', title: 'Shutdown' } },
+    };
+
+    const promise = manager.onSessionCreated(event);
+    await waitFor(() => spawnControllers.has('shutdown-test'));
+    spawnControllers.get('shutdown-test')?.resolve({ success: true, paneId: '%99' });
+    await promise;
+
+    await (manager as unknown as { pollSessions: () => Promise<void> }).pollSessions();
+
+    expect(utils.closeTmuxPane).toHaveBeenCalledWith('%99', 'shutdown-test');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

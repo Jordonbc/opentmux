@@ -6,7 +6,15 @@ import {
   type TmuxConfig,
 } from './config';
 import { SpawnQueue, type SpawnRequest } from './spawn-queue';
-import { closeTmuxPane, isInsideTmux, log, spawnTmuxPane, applyTmuxLayout } from './utils';
+import {
+  closeTmuxPane,
+  isInsideTmux,
+  log,
+  logDebug,
+  logError,
+  spawnTmuxPane,
+  applyTmuxLayout,
+} from './utils';
 import { getCurrentPaneId, getTmuxPath } from './utils/tmux';
 import { ZombieReaper } from './zombie-reaper';
 
@@ -96,6 +104,11 @@ export class TmuxSessionManager {
   private layoutDebounceTimer?: ReturnType<typeof setTimeout>;
   private reaper: ZombieReaper;
 
+  private getEnvRootPaneId(): string | undefined {
+    const paneId = process.env.TMUX_PANE;
+    return paneId && paneId.startsWith('%') ? paneId : undefined;
+  }
+
   constructor(ctx: PluginInput, tmuxConfig: TmuxConfig, serverUrl: string) {
     this.client = ctx.client;
     this.tmuxConfig = tmuxConfig;
@@ -114,7 +127,7 @@ export class TmuxSessionManager {
       spawnDelayMs: tmuxConfig.spawn_delay_ms,
       maxRetries: 0,
       onQueueUpdate: (pendingCount: number) => {
-        log('[tmux-session-manager] queue update', { pendingCount });
+        logDebug('[tmux-session-manager] queue update', { pendingCount });
       },
       onQueueDrained: () => {
         this.scheduleDebouncedLayout();
@@ -131,10 +144,13 @@ export class TmuxSessionManager {
       trackedSessionIds: () => this.sessions.keys(),
     });
 
+    this.rootTargetPaneId = this.getEnvRootPaneId();
+
     log('[tmux-session-manager] initialized', {
       enabled: this.enabled,
       tmuxConfig: this.tmuxConfig,
       serverUrl: this.serverUrl,
+      rootTargetPaneId: this.rootTargetPaneId,
     });
 
     if (this.enabled) {
@@ -143,7 +159,7 @@ export class TmuxSessionManager {
       // Start reaper
       this.reaper.start();
       void this.reaper.scanOnce().catch(err => 
-        log('[tmux-session-manager] initial reaper scan failed', { error: String(err) })
+        logError('[tmux-session-manager] initial reaper scan failed', { error: String(err) })
       );
     }
   }
@@ -164,7 +180,7 @@ export class TmuxSessionManager {
     const { sessionId, parentId, title } = childSession;
 
     if (this.sessions.has(sessionId) || this.pendingSessions.has(sessionId)) {
-      log('[tmux-session-manager] session already tracked or pending', { sessionId });
+      logDebug('[tmux-session-manager] session already tracked or pending', { sessionId });
       return;
     }
 
@@ -181,7 +197,7 @@ export class TmuxSessionManager {
 
       if (paneResult.success && paneResult.paneId) {
         if (paneResult.paneId === this.rootTargetPaneId) {
-          log('[tmux-session-manager] refusing to track root pane as child session', {
+          logError('[tmux-session-manager] refusing to track root pane as child session', {
             sessionId,
             paneId: paneResult.paneId,
           });
@@ -205,7 +221,7 @@ export class TmuxSessionManager {
 
         this.startPolling();
       } else {
-        log('[tmux-session-manager] failed to spawn pane', { sessionId });
+        logError('[tmux-session-manager] failed to spawn pane', { sessionId });
       }
     } finally {
       this.pendingSessions.delete(sessionId);
@@ -219,14 +235,14 @@ export class TmuxSessionManager {
       () => this.pollSessions(),
       POLL_INTERVAL_MS,
     );
-    log('[tmux-session-manager] polling started');
+    logDebug('[tmux-session-manager] polling started');
   }
 
   private stopPolling(): void {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = undefined;
-      log('[tmux-session-manager] polling stopped');
+      logDebug('[tmux-session-manager] polling stopped');
     }
   }
 
@@ -237,7 +253,7 @@ export class TmuxSessionManager {
 
     const debounceMs = this.tmuxConfig.layout_debounce_ms ?? 150;
     this.layoutDebounceTimer = setTimeout(() => {
-      log('[tmux-session-manager] applying deferred layout after queue drain');
+      logDebug('[tmux-session-manager] applying deferred layout after queue drain');
       void applyTmuxLayout();
     }, debounceMs);
   }
@@ -256,7 +272,7 @@ export class TmuxSessionManager {
       >;
       
       const statusCount = Object.keys(allStatuses).length;
-      log('[tmux-session-manager] poll status', { 
+      logDebug('[tmux-session-manager] poll status', {
         serverSessions: statusCount,
         trackedSessions: this.sessions.size 
       });
@@ -304,7 +320,7 @@ export class TmuxSessionManager {
         this.forgetSession(item.id, item.reason);
       }
     } catch (err) {
-      log('[tmux-session-manager] poll error', { error: String(err) });
+      logError('[tmux-session-manager] poll error', { error: String(err) });
 
       const serverAlive = await this.isServerAlive();
       if (!serverAlive) {
@@ -353,6 +369,15 @@ export class TmuxSessionManager {
       return this.rootTargetPaneId;
     }
 
+    const envPaneId = this.getEnvRootPaneId();
+    if (envPaneId) {
+      this.rootTargetPaneId = envPaneId;
+      logDebug('[tmux-session-manager] using TMUX_PANE as target pane id', {
+        targetPaneId: envPaneId,
+      });
+      return envPaneId;
+    }
+
     try {
       const tmux = await getTmuxPath();
       if (!tmux) {
@@ -360,7 +385,7 @@ export class TmuxSessionManager {
       }
 
       const targetPaneId = await getCurrentPaneId(tmux);
-      log('[tmux-session-manager] captured target pane id', {
+      logDebug('[tmux-session-manager] captured target pane id', {
         targetPaneId,
       });
 
@@ -370,7 +395,7 @@ export class TmuxSessionManager {
 
       return targetPaneId;
     } catch (err) {
-      log('[tmux-session-manager] failed to capture target pane id', {
+      logError('[tmux-session-manager] failed to capture target pane id', {
         error: String(err),
       });
       return null;
@@ -389,7 +414,7 @@ export class TmuxSessionManager {
 
     if (tracked.paneId === this.rootTargetPaneId) {
       this.sessions.delete(sessionId);
-      log('[tmux-session-manager] refused to close root pane for child session', {
+      logError('[tmux-session-manager] refused to close root pane for child session', {
         sessionId,
         paneId: tracked.paneId,
         reason,
@@ -399,7 +424,7 @@ export class TmuxSessionManager {
 
     const closed = await closeTmuxPane(tracked.paneId, sessionId);
     if (!closed) {
-      log('[tmux-session-manager] close failed, keeping session tracked', {
+      logError('[tmux-session-manager] close failed, keeping session tracked', {
         sessionId,
         paneId: tracked.paneId,
         reason,
@@ -463,7 +488,7 @@ export class TmuxSessionManager {
       });
       const closePromises = Array.from(this.sessions.values()).map((s) => {
         if (s.paneId === this.rootTargetPaneId) {
-          log('[tmux-session-manager] refused to close root pane during cleanup', {
+          logError('[tmux-session-manager] refused to close root pane during cleanup', {
             sessionId: s.sessionId,
             paneId: s.paneId,
           });
@@ -471,7 +496,7 @@ export class TmuxSessionManager {
         }
 
         return closeTmuxPane(s.paneId, s.sessionId).catch((err) =>
-          log('[tmux-session-manager] cleanup error for pane', {
+          logError('[tmux-session-manager] cleanup error for pane', {
             paneId: s.paneId,
             error: String(err),
           }),

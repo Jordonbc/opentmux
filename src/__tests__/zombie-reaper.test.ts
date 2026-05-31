@@ -18,7 +18,7 @@ let reaper: ZombieReaper;
 beforeEach(() => {
   mockFetch.mockReset();
   // Return a NEW response every time
-  mockFetch.mockImplementation(async (url: string) => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+  mockFetch.mockImplementation(async (_url: string) => new Response(JSON.stringify({ data: [] }), { status: 200 }));
   
   // Default mocks
   spyOn(processUtils, 'findProcessIds').mockReturnValue([]);
@@ -70,14 +70,11 @@ test('scanOnce filters by serverUrl', async () => {
   });
 
   // Mock server 4096 to have NO sessions (so ses_mine is zombie)
-  mockFetch.mockImplementation(async (url: string) => {
-    if (url.includes('4096')) return new Response(JSON.stringify({ data: {} }), { status: 200 });
+  mockFetch.mockImplementation(async (_url: string) => {
+    if (_url.includes('4096')) return new Response(JSON.stringify({ data: {} }), { status: 200 });
     return new Response(JSON.stringify({ data: { ses_other: {} } }), { status: 200 }); // 4097 has session
   });
 
-  // Spy on kill
-  const safeKillSpy = spyOn(processUtils, 'safeKill');
-  
   // Mock Date.now to force kill condition
   spyOn(Date, 'now').mockReturnValue(1000000);
   
@@ -117,6 +114,131 @@ test('classifyProcess returns unknown if server fails', async () => {
 
   const status = await reaper.classifyProcess('ses_any');
   expect(status).toBe('unknown');
+});
+
+test('areUrlsEqual normalizes localhost and missing protocol', () => {
+  const areUrlsEqual = (reaper as unknown as {
+    areUrlsEqual: (url1: string | null, url2: string) => boolean;
+  }).areUrlsEqual;
+
+  expect(areUrlsEqual('localhost:4096', 'http://127.0.0.1:4096')).toBe(true);
+  expect(areUrlsEqual('http://localhost:4096', 'https://localhost:4096')).toBe(false);
+  expect(areUrlsEqual(null, 'http://localhost:4096')).toBe(false);
+});
+
+test('fetchActiveSessions accepts raw session maps', async () => {
+  mockFetch.mockImplementation(async () => new Response(JSON.stringify({
+    ses_one: {},
+    ses_two: {},
+  }), { status: 200 }));
+
+  const fetchActiveSessions = (reaper as unknown as {
+    fetchActiveSessions: (url: string) => Promise<Set<string> | null>;
+  }).fetchActiveSessions;
+
+  const sessions = await fetchActiveSessions('http://localhost:4096');
+  expect(sessions).toEqual(new Set(['ses_one', 'ses_two']));
+});
+
+test('fetchActiveSessions accepts array session payloads', async () => {
+  mockFetch.mockImplementation(async () => new Response(JSON.stringify({
+    data: [
+      { id: 'ses_arr_one' },
+      { sessionId: 'ses_arr_two' },
+    ],
+  }), { status: 200 }));
+
+  const fetchActiveSessions = (reaper as unknown as {
+    fetchActiveSessions: (url: string) => Promise<Set<string> | null>;
+  }).fetchActiveSessions;
+
+  const sessions = await fetchActiveSessions('http://localhost:4096');
+  expect(sessions).toEqual(new Set(['ses_arr_one', 'ses_arr_two']));
+});
+
+test('fetchActiveSessions returns null for invalid JSON payloads', async () => {
+  mockFetch.mockImplementation(async () => new Response('not-json', { status: 200 }));
+
+  const fetchActiveSessions = (reaper as unknown as {
+    fetchActiveSessions: (url: string) => Promise<Set<string> | null>;
+  }).fetchActiveSessions;
+
+  const sessions = await fetchActiveSessions('http://localhost:4096');
+  expect(sessions).toBeNull();
+});
+
+test('reapServers handles fetch errors while cleaning unreachable servers', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([991]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('opencode --port 4096');
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(false);
+  const safeKillSpy = spyOn(processUtils, 'safeKill').mockReturnValue(true);
+
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], _ms?: number, ...args: Parameters<typeof setTimeout>[2][]) => {
+    if (typeof callback === 'function') {
+      callback(...args);
+    }
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(async () => {
+    throw new Error('network down');
+  }) as unknown as typeof fetch;
+
+  try {
+    const reaped = await ZombieReaper.reapServers(4096, 4096);
+    expect(reaped).toBe(1);
+    expect(safeKillSpy).toHaveBeenCalledWith(991, 'SIGTERM');
+    expect(safeKillSpy).toHaveBeenCalledWith(991, 'SIGKILL');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test('reapServers handles fetchActiveSessions rejection through outer catch', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([992]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('opencode --port 4096');
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(false);
+  const safeKillSpy = spyOn(processUtils, 'safeKill').mockReturnValue(true);
+
+  const fetchSpy = spyOn(
+    ZombieReaper.prototype as unknown as {
+      fetchActiveSessions: (url: string) => Promise<Set<string> | null>;
+    },
+    'fetchActiveSessions',
+  ).mockRejectedValue(new Error('status endpoint exploded'));
+
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], _ms?: number, ...args: Parameters<typeof setTimeout>[2][]) => {
+    if (typeof callback === 'function') {
+      callback(...args);
+    }
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  try {
+    const reaped = await ZombieReaper.reapServers(4096, 4096);
+    expect(reaped).toBe(1);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(safeKillSpy).toHaveBeenCalledWith(992, 'SIGTERM');
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test('fetchActiveSessions accepts empty session arrays', async () => {
+  mockFetch.mockImplementation(async () => new Response(JSON.stringify({
+    data: [],
+  }), { status: 200 }));
+
+  const fetchActiveSessions = (reaper as unknown as {
+    fetchActiveSessions: (url: string) => Promise<Set<string> | null>;
+  }).fetchActiveSessions;
+
+  const sessions = await fetchActiveSessions('http://localhost:4096');
+  expect(sessions).toEqual(new Set());
 });
 
 test('shouldKill requires consecutive checks and grace period', () => {
@@ -264,6 +386,105 @@ test('reapServers skips commands that only contain opencode as a substring', asy
   await ZombieReaper.reapServers(4096, 4096);
 
   expect(safeKillSpy).not.toHaveBeenCalled();
+});
+
+test('shutdown stops the reaper and runs a final scan', async () => {
+  const stopSpy = spyOn(reaper, 'stop');
+  const scanOnceSpy = spyOn(reaper, 'scanOnce').mockResolvedValue(undefined);
+
+  await reaper.shutdown();
+
+  expect(stopSpy).toHaveBeenCalledTimes(1);
+  expect(scanOnceSpy).toHaveBeenCalledTimes(1);
+});
+
+test('private candidate helpers prune missing pids and expose tracked sessions', () => {
+  const helperReaper = new ZombieReaper('http://localhost:4096', {
+    ...DEFAULT_OPTIONS,
+    trackedSessionIds: () => ['ses_keep', 'ses_other'],
+  });
+
+  const internal = helperReaper as unknown as {
+    pruneCandidates: (currentPids: Set<number>) => void;
+    getTrackedSessionIds: () => Set<string> | null;
+    candidates: Map<number, { count: number; firstDetectedAt: number }>;
+  };
+
+  internal.candidates.set(11, { count: 1, firstDetectedAt: Date.now() });
+  internal.candidates.set(12, { count: 2, firstDetectedAt: Date.now() });
+
+  internal.pruneCandidates(new Set([12]));
+
+  expect(internal.candidates.has(11)).toBe(false);
+  expect(internal.candidates.has(12)).toBe(true);
+  expect(internal.getTrackedSessionIds()).toEqual(new Set(['ses_keep', 'ses_other']));
+});
+
+test('reapServers retries unreachable servers before killing them', async () => {
+  spyOn(processUtils, 'getListeningPids').mockReturnValue([990]);
+  spyOn(processUtils, 'getProcessCommand').mockReturnValue('opencode --port 4096');
+  spyOn(processUtils, 'safeKill').mockReturnValue(true);
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(true);
+
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], _ms?: number, ...args: Parameters<typeof setTimeout>[2][]) => {
+    if (typeof callback === 'function') {
+      callback(...args);
+    }
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(async () => {
+    throw new Error('network down');
+  }) as unknown as typeof fetch;
+
+  try {
+    const reaped = await ZombieReaper.reapServers(4096, 4096);
+
+    expect(reaped).toBe(1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test('forceKill escalates to SIGKILL when SIGTERM does not exit', async () => {
+  const helperReaper = new ZombieReaper('http://localhost:4096', DEFAULT_OPTIONS);
+  const internal = helperReaper as unknown as {
+    forceKill: (pid: number) => Promise<void>;
+  };
+
+  const safeKillSpy = spyOn(processUtils, 'safeKill').mockReturnValue(true);
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(false);
+
+  await internal.forceKill(321);
+
+  expect(safeKillSpy).toHaveBeenCalledWith(321, 'SIGTERM');
+  expect(safeKillSpy).toHaveBeenCalledWith(321, 'SIGKILL');
+});
+
+test('reapProcess removes the candidate after successful cleanup', async () => {
+  const helperReaper = new ZombieReaper('http://localhost:4096', DEFAULT_OPTIONS);
+  const internal = helperReaper as unknown as {
+    reapProcess: (proc: { pid: number; sessionId: string; command: string; targetUrl: string | null }) => Promise<void>;
+    candidates: Map<number, { count: number; firstDetectedAt: number }>;
+  };
+
+  internal.candidates.set(777, { count: 2, firstDetectedAt: Date.now() });
+  const safeKillSpy = spyOn(processUtils, 'safeKill').mockReturnValue(true);
+  spyOn(processUtils, 'waitForProcessExit').mockResolvedValue(false);
+
+  await internal.reapProcess({
+    pid: 777,
+    sessionId: 'ses_777',
+    command: 'opencode attach http://localhost:4096 --session ses_777',
+    targetUrl: 'http://localhost:4096',
+  });
+
+  expect(safeKillSpy).toHaveBeenCalledWith(777, 'SIGTERM');
+  expect(safeKillSpy).toHaveBeenCalledWith(777, 'SIGKILL');
+  expect(internal.candidates.has(777)).toBe(false);
 });
 
 test('reapAll scans configured port range', async () => {

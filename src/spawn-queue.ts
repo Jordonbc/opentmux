@@ -1,4 +1,4 @@
-import { log } from './utils/logger';
+import { logDebug, logError } from './utils/logger';
 
 export interface SpawnResult {
   success: boolean;
@@ -64,7 +64,7 @@ export class SpawnQueue {
     this.staleThresholdMs = options.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
     this.onQueueUpdate = options.onQueueUpdate;
     this.onQueueDrained = options.onQueueDrained;
-    this.logFn = options.logFn ?? log;
+    this.logFn = options.logFn ?? logDebug;
 
     this.logFn('[spawn-queue] initialized', {
       spawnDelayMs: this.spawnDelayMs,
@@ -76,7 +76,7 @@ export class SpawnQueue {
   enqueue(item: { sessionId: string; title: string }): Promise<SpawnResult> {
     // If shutdown, reject immediately
     if (this.isShutdown) {
-      this.logFn('[spawn-queue] enqueue rejected (shutdown)', { sessionId: item.sessionId });
+      logError('[spawn-queue] enqueue rejected (shutdown)', { sessionId: item.sessionId });
       return Promise.resolve({ success: false });
     }
 

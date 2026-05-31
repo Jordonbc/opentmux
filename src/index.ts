@@ -4,7 +4,7 @@ import { TmuxSessionManager } from './tmux-session-manager';
 import { log, startTmuxCheck } from './utils';
 import { loadConfig } from './utils/config-loader';
 
-function detectServerUrl(): string {
+export function detectServerUrl(): string {
   if (process.env.OPENCODE_PORT) {
     return `http://localhost:${process.env.OPENCODE_PORT}`;
   }
@@ -13,6 +13,10 @@ function detectServerUrl(): string {
 }
 
 let isInitialized = false;
+
+export function resetOpencodeAgentTmuxStateForTest(): void {
+  isInitialized = false;
+}
 
 const OpencodeAgentTmux: Plugin = async (ctx) => {
   if (isInitialized) {

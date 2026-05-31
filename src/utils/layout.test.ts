@@ -9,6 +9,29 @@ describe('generateLayoutString', () => {
     mainPaneId: 'main',
   };
 
+  test('returns empty string for invalid dimensions', () => {
+    expect(
+      generateLayoutString({
+        ...defaultParams,
+        width: 0,
+        paneIds: ['p1'],
+        maxAgentsPerColumn: 3,
+      }),
+    ).toBe('');
+  });
+
+  test('filters out the main pane id and returns a single node when no subagents exist', () => {
+    const layout = generateLayoutString({
+      ...defaultParams,
+      paneIds: ['main'],
+      maxAgentsPerColumn: 3,
+    });
+
+    expect(layout).toContain(',main');
+    expect(layout).not.toContain('{');
+    expect(layout).not.toContain('[');
+  });
+
   test('3 agents, limit 3 (should be 1 col)', () => {
     const params = {
       ...defaultParams,
@@ -29,6 +52,19 @@ describe('generateLayoutString', () => {
     // Each pane is WxH,X,Y,id. So 3 panes will have 3 * 4 - 1 = 11 commas if we split by everything.
     // Better: count occurrences of 'p' or the actual IDs
     expect(panes.filter(p => p.includes('p')).length).toBe(3);
+  });
+
+  test('maxAgentsPerColumn 0 behaves like a single column', () => {
+    const layout = generateLayoutString({
+      ...defaultParams,
+      paneIds: ['p1', 'p2', 'p3'],
+      maxAgentsPerColumn: 0,
+    });
+
+    expect(countOccurrences(layout, '[')).toBe(1);
+    expect(layout).toContain('p1');
+    expect(layout).toContain('p2');
+    expect(layout).toContain('p3');
   });
 
   test('4 agents, limit 3 (should be 2 cols: 3, 1)', () => {
@@ -58,10 +94,25 @@ describe('generateLayoutString', () => {
     
     // Check that p4 is outside the vertical split
     expect(layout).toMatch(/,p4/);
-    const splitIndex = layout.indexOf('[');
     const p4Index = layout.indexOf(',p4');
     const splitEndIndex = layout.lastIndexOf(']');
     expect(p4Index).toBeGreaterThan(splitEndIndex);
+  });
+
+  test('distributes column widths with the last column taking the remainder', () => {
+    const layout = generateLayoutString({
+      ...defaultParams,
+      width: 205,
+      height: 40,
+      mainPaneSizePercent: 50,
+      paneIds: ['p1', 'p2', 'p3', 'p4'],
+      maxAgentsPerColumn: 2,
+    });
+
+    expect(layout).toContain('205x40,0,0{');
+    expect(layout).toContain('102x40,0,0,main');
+    expect(layout).toContain('51x40,102,0[');
+    expect(layout).toContain('52x40,153,0[');
   });
 });
 
