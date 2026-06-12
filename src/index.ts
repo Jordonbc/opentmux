@@ -24,8 +24,9 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
       directory: ctx.directory,
     });
     return {
-      name: 'opentmux',
+      config: async () => {},
       event: async () => {},
+      dispose: async () => {},
     };
   }
   isInitialized = true;
@@ -66,11 +67,13 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
   const tmuxSessionManager = new TmuxSessionManager(ctx, tmuxConfig, serverUrl);
 
   return {
-    name: 'opentmux',
+    config: async () => {
+      // No plugin-level config to register
+    },
 
-    event: async (input) => {
+    event: async ({ event }) => {
       await tmuxSessionManager.onSessionCreated(
-        input.event as {
+        event as {
           type: string;
           properties?: {
             info?: { id?: string; parentID?: string; title?: string };
@@ -78,9 +81,12 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
         },
       );
     },
+
+    dispose: async () => {
+      await tmuxSessionManager.cleanup();
+    },
   };
 };
-
 export default OpencodeAgentTmux;
 
 export type { PluginConfig, TmuxConfig, TmuxLayout } from './config';

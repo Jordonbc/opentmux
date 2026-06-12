@@ -45,8 +45,12 @@ test('plugin initializes, forwards events, and skips duplicate init with real mo
   const first = await plugin(ctx);
   const second = await plugin(ctx);
 
-  expect(first.name).toBe('opentmux');
-  expect(second.name).toBe('opentmux');
+  expect(typeof first.config).toBe('function');
+  expect(typeof first.event).toBe('function');
+  expect(typeof first.dispose).toBe('function');
+  expect(typeof second.config).toBe('function');
+  expect(typeof second.event).toBe('function');
+  expect(typeof second.dispose).toBe('function');
   expect(await first.event?.({ event: { type: 'session.created', properties: { info: {} } } })).toBeUndefined();
   expect(await second.event?.({ event: { type: 'session.created', properties: { info: {} } } })).toBeUndefined();
 

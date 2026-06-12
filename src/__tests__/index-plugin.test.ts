@@ -105,7 +105,9 @@ test('plugin initializes manager, starts tmux check, and forwards events', async
 
   const output = await plugin(ctx);
 
-  expect(output.name).toBe('opentmux');
+  expect(typeof output.config).toBe('function');
+  expect(typeof output.event).toBe('function');
+  expect(typeof output.dispose).toBe('function');
   expect(constructorCalls).toHaveLength(1);
   expect(constructorCalls[0]).toEqual({
     ctx,
@@ -171,8 +173,12 @@ test('plugin duplicate init skips manager creation and tmux check', async () => 
   const first = await plugin(ctx);
   const second = await plugin(ctx);
 
-  expect(first.name).toBe('opentmux');
-  expect(second.name).toBe('opentmux');
+  expect(typeof first.config).toBe('function');
+  expect(typeof first.event).toBe('function');
+  expect(typeof first.dispose).toBe('function');
+  expect(typeof second.config).toBe('function');
+  expect(typeof second.event).toBe('function');
+  expect(typeof second.dispose).toBe('function');
   expect(constructorCalls).toHaveLength(1);
   expect(startTmuxCheckMock).not.toHaveBeenCalled();
   expect(logMock).toHaveBeenCalledWith('[plugin] duplicate initialization detected, skipping', {
@@ -212,7 +218,9 @@ test('plugin derives serverUrl from OPENCODE_PORT when ctx.serverUrl is missing'
     resetOpencodeAgentTmuxStateForTest();
     const output = await plugin(createPluginInput('/work'));
 
-    expect(output.name).toBe('opentmux');
+  expect(typeof output.config).toBe('function');
+  expect(typeof output.event).toBe('function');
+  expect(typeof output.dispose).toBe('function');
     expect(startTmuxCheckMock).toHaveBeenCalledTimes(1);
     expect(constructorCalls[0].serverUrl).toBe('http://localhost:4096');
   } finally {
