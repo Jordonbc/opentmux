@@ -41,14 +41,14 @@ const originalTmuxPane = process.env.TMUX_PANE;
 function createMockPluginInput(): PluginInput {
   return {
     directory: '/test',
-    serverUrl: 'http://localhost:4096',
+    serverUrl: new URL('http://localhost:4096'),
     client: {
       session: {
-        status: mock(async () => ({ data: {} })),
+        status: mock(async () => ({ data: {}, error: undefined })) as unknown as PluginInput['client']['session']['status'],
         subscribe: mock(() => () => {}),
       },
     },
-  };
+  } as unknown as PluginInput;
 }
 
 function createTmuxConfig(overrides?: Partial<TmuxConfig>): TmuxConfig {
@@ -749,7 +749,7 @@ test('TmuxSessionManager forgets missing sessions after timeout when auto_close=
   const ctx = createMockPluginInput();
   const config = createTmuxConfig({ auto_close: false });
   const statusMock = mock(async () => ({ data: {} }));
-  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+  ctx.client.session.status = statusMock as unknown as typeof ctx.client.session.status;
 
   let now = 1_000_000;
   spyOn(Date, 'now').mockImplementation(() => now);
@@ -786,7 +786,7 @@ test('TmuxSessionManager does not close panes when session status is briefly mis
     .mockResolvedValueOnce({ data: {} })
     .mockResolvedValueOnce({ data: { 'missing-test': { type: 'running' } } });
 
-  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+  ctx.client.session.status = statusMock as unknown as typeof ctx.client.session.status;
 
   spyOn(utils, 'spawnTmuxPane').mockResolvedValue({ success: true, paneId: '%123' });
 
@@ -811,7 +811,7 @@ test('TmuxSessionManager does not close panes while session is idle but still li
   const ctx = createMockPluginInput();
   const config = createTmuxConfig();
   const statusMock = mock(async () => ({ data: { 'idle-test': { type: 'idle' } } }));
-  ctx.client.session.status = statusMock as typeof ctx.client.session.status;
+  ctx.client.session.status = statusMock as unknown as typeof ctx.client.session.status;
 
   spyOn(utils, 'spawnTmuxPane').mockResolvedValue({ success: true, paneId: '%124' });
 

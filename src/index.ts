@@ -1,4 +1,4 @@
-import type { Plugin } from './types';
+import type { Hooks, Plugin, PluginModule } from './types';
 import { type TmuxConfig } from './config';
 import { TmuxSessionManager } from './tmux-session-manager';
 import { log, startTmuxCheck } from './utils';
@@ -18,17 +18,19 @@ export function resetOpencodeAgentTmuxStateForTest(): void {
   isInitialized = false;
 }
 
+const EMPTY_HOOKS: Hooks = {
+  config: async () => {},
+  event: async () => {},
+  dispose: async () => {},
+};
+
 const OpencodeAgentTmux: Plugin = async (ctx) => {
   try {
     if (isInitialized) {
       log('[plugin] duplicate initialization detected, skipping', {
         directory: ctx.directory,
       });
-      return {
-        config: async () => {},
-        event: async () => {},
-        dispose: async () => {},
-      };
+      return EMPTY_HOOKS;
     }
     isInitialized = true;
 
@@ -53,7 +55,7 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
       max_ports: config.max_ports,
     };
 
-    const serverUrl = ctx.serverUrl?.toString() || detectServerUrl();
+    const serverUrl = ctx.serverUrl.toString();
 
     log('[plugin] initialized', {
       tmuxConfig,
@@ -67,7 +69,7 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
 
     const tmuxSessionManager = new TmuxSessionManager(ctx, tmuxConfig, serverUrl);
 
-    return {
+    const hooks: Hooks = {
       config: async () => {
         // No plugin-level config to register
       },
@@ -87,18 +89,21 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
         await tmuxSessionManager.cleanup();
       },
     };
+
+    return hooks;
   } catch (err) {
     console.error('[opentmux] plugin initialization error:', err);
     log('[plugin] initialization error', { error: String(err) });
     // Return empty hooks so OpenCode doesn't crash
-    return {
-      config: async () => {},
-      event: async () => {},
-      dispose: async () => {},
-    };
+    return EMPTY_HOOKS;
   }
 };
-export default OpencodeAgentTmux;
+
+const pluginModule: PluginModule = {
+  server: OpencodeAgentTmux,
+};
+
+export default pluginModule;
 export const server = OpencodeAgentTmux;
 
 export type { PluginConfig, TmuxConfig, TmuxLayout } from './config';

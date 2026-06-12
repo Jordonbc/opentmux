@@ -40,8 +40,8 @@ test('plugin covers duplicate init using static imports', async () => {
     },
   };
 
-  const first = await plugin(ctx);
-  const second = await plugin(ctx);
+  const first = await plugin.server(ctx as never);
+  const second = await plugin.server(ctx as never);
 
   expect(typeof first.config).toBe('function');
   expect(typeof first.event).toBe('function');
@@ -49,8 +49,8 @@ test('plugin covers duplicate init using static imports', async () => {
   expect(typeof second.config).toBe('function');
   expect(typeof second.event).toBe('function');
   expect(typeof second.dispose).toBe('function');
-  expect(await first.event?.({ event: { type: 'session.created', properties: {} } })).toBeUndefined();
-  expect(await second.event?.({ event: { type: 'session.created', properties: {} } })).toBeUndefined();
+  expect(await first.event?.({ event: { type: 'session.created', properties: {} } } as never)).toBeUndefined();
+  expect(await second.event?.({ event: { type: 'session.created', properties: {} } } as never)).toBeUndefined();
 
   fs.rmSync(projectDir, { recursive: true, force: true });
 });

@@ -27,7 +27,9 @@
     "visualization"
   ],
   "author": "Jordon Brooks",
-  "contributors": ["Angan Samadder"],
+  "contributors": [
+    "Angan Samadder"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -41,6 +43,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@opencode-ai/plugin": "^1.17.4",
     "proper-lockfile": "^4.1.2",
     "zod": "^3.25.76"
   },

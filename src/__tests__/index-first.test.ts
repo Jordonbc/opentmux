@@ -19,13 +19,14 @@ afterEach(() => {
 function createPluginInput(directory: string): PluginInput {
   return {
     directory,
+    serverUrl: new URL('http://localhost:4096'),
     client: {
       session: {
-        status: async () => ({ data: {} }),
+        status: (async () => ({ data: {}, error: undefined })) as unknown as PluginInput['client']['session']['status'],
         subscribe: () => () => {},
       },
     },
-  };
+  } as unknown as PluginInput;
 }
 
 test('detectServerUrl respects OPENCODE_PORT when provided', () => {
@@ -42,8 +43,8 @@ test('plugin initializes, forwards events, and skips duplicate init with real mo
   );
 
   const ctx = createPluginInput(projectDir);
-  const first = await plugin(ctx);
-  const second = await plugin(ctx);
+  const first = await plugin.server(ctx);
+  const second = await plugin.server(ctx);
 
   expect(typeof first.config).toBe('function');
   expect(typeof first.event).toBe('function');
@@ -51,8 +52,8 @@ test('plugin initializes, forwards events, and skips duplicate init with real mo
   expect(typeof second.config).toBe('function');
   expect(typeof second.event).toBe('function');
   expect(typeof second.dispose).toBe('function');
-  expect(await first.event?.({ event: { type: 'session.created', properties: { info: {} } } })).toBeUndefined();
-  expect(await second.event?.({ event: { type: 'session.created', properties: { info: {} } } })).toBeUndefined();
+  expect(await first.event?.({ event: { type: 'session.created', properties: { info: {} } } } as never)).toBeUndefined();
+  expect(await second.event?.({ event: { type: 'session.created', properties: { info: {} } } } as never)).toBeUndefined();
 
   fs.rmSync(projectDir, { recursive: true, force: true });
 });

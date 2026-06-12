@@ -46,14 +46,14 @@ class MockTmuxSessionManager {
 function createPluginInput(directory: string, serverUrl?: string | URL): PluginInput {
   return {
     directory,
-    serverUrl,
+    serverUrl: serverUrl ? new URL(serverUrl.toString()) : new URL('http://localhost:4096'),
     client: {
       session: {
-        status: async () => ({ data: {} }),
+        status: (async () => ({ data: {}, error: undefined })) as unknown as PluginInput['client']['session']['status'],
         subscribe: () => () => {},
       },
     },
-  };
+  } as unknown as PluginInput;
 }
 
 async function importPlugin() {
@@ -105,7 +105,7 @@ test('plugin initializes manager, starts tmux check, and forwards events', async
   resetOpencodeAgentTmuxStateForTest();
   const ctx = createPluginInput('/work', new URL('http://localhost:7777'));
 
-  const output = await plugin(ctx);
+  const output = await plugin.server(ctx);
 
   expect(typeof output.config).toBe('function');
   expect(typeof output.event).toBe('function');
@@ -140,7 +140,7 @@ test('plugin initializes manager, starts tmux check, and forwards events', async
       type: 'session.created',
       properties: { info: { id: 's-1', parentID: 'parent', title: 'Task' } },
     },
-  });
+  } as never);
 
   expect(onSessionCreatedMock).toHaveBeenCalledWith({
     type: 'session.created',
@@ -172,8 +172,8 @@ test('plugin duplicate init skips manager creation and tmux check', async () => 
   resetOpencodeAgentTmuxStateForTest();
   const ctx = createPluginInput('/work', 'http://localhost:9999');
 
-  const first = await plugin(ctx);
-  const second = await plugin(ctx);
+  const first = await plugin.server(ctx);
+  const second = await plugin.server(ctx);
 
   expect(typeof first.config).toBe('function');
   expect(typeof first.event).toBe('function');
@@ -184,7 +184,7 @@ test('plugin duplicate init skips manager creation and tmux check', async () => 
   expect(constructorCalls).toHaveLength(1);
   await second.event?.({
     event: { type: 'session.created', properties: { info: { id: 'dup', parentID: 'parent' } } },
-  });
+  } as never);
   expect(onSessionCreatedMock).not.toHaveBeenCalled();
 });
 
@@ -214,12 +214,12 @@ test('plugin derives serverUrl from OPENCODE_PORT when ctx.serverUrl is missing'
   try {
     const { default: plugin, resetOpencodeAgentTmuxStateForTest } = await importPlugin();
     resetOpencodeAgentTmuxStateForTest();
-    const output = await plugin(createPluginInput('/work'));
+    const output = await plugin.server(createPluginInput('/work'));
 
   expect(typeof output.config).toBe('function');
   expect(typeof output.event).toBe('function');
   expect(typeof output.dispose).toBe('function');
-    expect(constructorCalls[0].serverUrl).toBe('http://localhost:4096');
+    expect(constructorCalls[0].serverUrl).toBe('http://localhost:4096/');
   } finally {
     if (originalPort) {
       process.env.OPENCODE_PORT = originalPort;
