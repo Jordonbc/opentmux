@@ -19,74 +19,86 @@ export function resetOpencodeAgentTmuxStateForTest(): void {
 }
 
 const OpencodeAgentTmux: Plugin = async (ctx) => {
-  if (isInitialized) {
-    log('[plugin] duplicate initialization detected, skipping', {
+  try {
+    if (isInitialized) {
+      log('[plugin] duplicate initialization detected, skipping', {
+        directory: ctx.directory,
+      });
+      return {
+        config: async () => {},
+        event: async () => {},
+        dispose: async () => {},
+      };
+    }
+    isInitialized = true;
+
+    const config = loadConfig(ctx.directory);
+
+    const tmuxConfig: TmuxConfig = {
+      enabled: config.enabled,
+      layout: config.layout,
+      main_pane_size: config.main_pane_size,
+      auto_close: config.auto_close,
+      spawn_delay_ms: config.spawn_delay_ms,
+      max_retry_attempts: config.max_retry_attempts,
+      layout_debounce_ms: config.layout_debounce_ms,
+      max_agents_per_column: config.max_agents_per_column,
+      reaper_enabled: config.reaper_enabled,
+      reaper_interval_ms: config.reaper_interval_ms,
+      reaper_min_zombie_checks: config.reaper_min_zombie_checks,
+      reaper_grace_period_ms: config.reaper_grace_period_ms,
+      reaper_auto_self_destruct: config.reaper_auto_self_destruct,
+      reaper_self_destruct_timeout_ms: config.reaper_self_destruct_timeout_ms,
+      rotate_port: config.rotate_port,
+      max_ports: config.max_ports,
+    };
+
+    const serverUrl = ctx.serverUrl?.toString() || detectServerUrl();
+
+    log('[plugin] initialized', {
+      tmuxConfig,
       directory: ctx.directory,
+      serverUrl,
     });
+
+    if (tmuxConfig.enabled) {
+      startTmuxCheck();
+    }
+
+    const tmuxSessionManager = new TmuxSessionManager(ctx, tmuxConfig, serverUrl);
+
+    return {
+      config: async () => {
+        // No plugin-level config to register
+      },
+
+      event: async ({ event }) => {
+        await tmuxSessionManager.onSessionCreated(
+          event as {
+            type: string;
+            properties?: {
+              info?: { id?: string; parentID?: string; title?: string };
+            };
+          },
+        );
+      },
+
+      dispose: async () => {
+        await tmuxSessionManager.cleanup();
+      },
+    };
+  } catch (err) {
+    console.error('[opentmux] plugin initialization error:', err);
+    log('[plugin] initialization error', { error: String(err) });
+    // Return empty hooks so OpenCode doesn't crash
     return {
       config: async () => {},
       event: async () => {},
       dispose: async () => {},
     };
   }
-  isInitialized = true;
-
-  const config = loadConfig(ctx.directory);
-
-  const tmuxConfig: TmuxConfig = {
-    enabled: config.enabled,
-    layout: config.layout,
-    main_pane_size: config.main_pane_size,
-    auto_close: config.auto_close,
-    spawn_delay_ms: config.spawn_delay_ms,
-    max_retry_attempts: config.max_retry_attempts,
-    layout_debounce_ms: config.layout_debounce_ms,
-    max_agents_per_column: config.max_agents_per_column,
-    reaper_enabled: config.reaper_enabled,
-    reaper_interval_ms: config.reaper_interval_ms,
-    reaper_min_zombie_checks: config.reaper_min_zombie_checks,
-    reaper_grace_period_ms: config.reaper_grace_period_ms,
-    reaper_auto_self_destruct: config.reaper_auto_self_destruct,
-    reaper_self_destruct_timeout_ms: config.reaper_self_destruct_timeout_ms,
-    rotate_port: config.rotate_port,
-    max_ports: config.max_ports,
-  };
-
-  const serverUrl = ctx.serverUrl?.toString() || detectServerUrl();
-
-  log('[plugin] initialized', {
-    tmuxConfig,
-    directory: ctx.directory,
-    serverUrl,
-  });
-
-  if (tmuxConfig.enabled) {
-    startTmuxCheck();
-  }
-
-  const tmuxSessionManager = new TmuxSessionManager(ctx, tmuxConfig, serverUrl);
-
-  return {
-    config: async () => {
-      // No plugin-level config to register
-    },
-
-    event: async ({ event }) => {
-      await tmuxSessionManager.onSessionCreated(
-        event as {
-          type: string;
-          properties?: {
-            info?: { id?: string; parentID?: string; title?: string };
-          };
-        },
-      );
-    },
-
-    dispose: async () => {
-      await tmuxSessionManager.cleanup();
-    },
-  };
 };
 export default OpencodeAgentTmux;
+export const server = OpencodeAgentTmux;
 
 export type { PluginConfig, TmuxConfig, TmuxLayout } from './config';
