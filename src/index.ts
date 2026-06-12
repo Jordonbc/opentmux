@@ -13,9 +13,11 @@ export function detectServerUrl(): string {
 }
 
 let isInitialized = false;
+let sharedHooks: Hooks | null = null;
 
 export function resetOpencodeAgentTmuxStateForTest(): void {
   isInitialized = false;
+  sharedHooks = null;
 }
 
 const EMPTY_HOOKS: Hooks = {
@@ -30,7 +32,7 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
       log('[plugin] duplicate initialization detected, skipping', {
         directory: ctx.directory,
       });
-      return EMPTY_HOOKS;
+      return sharedHooks ?? EMPTY_HOOKS;
     }
     isInitialized = true;
 
@@ -87,9 +89,12 @@ const OpencodeAgentTmux: Plugin = async (ctx) => {
 
       dispose: async () => {
         await tmuxSessionManager.cleanup();
+        isInitialized = false;
+        sharedHooks = null;
       },
     };
 
+    sharedHooks = hooks;
     return hooks;
   } catch (err) {
     console.error('[opentmux] plugin initialization error:', err);

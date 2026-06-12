@@ -185,7 +185,10 @@ test('plugin duplicate init skips manager creation and tmux check', async () => 
   await second.event?.({
     event: { type: 'session.created', properties: { info: { id: 'dup', parentID: 'parent' } } },
   } as never);
-  expect(onSessionCreatedMock).not.toHaveBeenCalled();
+  expect(onSessionCreatedMock).toHaveBeenCalledWith({
+    type: 'session.created',
+    properties: { info: { id: 'dup', parentID: 'parent' } },
+  });
 });
 
 test('plugin derives serverUrl from OPENCODE_PORT when ctx.serverUrl is missing', async () => {
